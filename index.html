@@ -247,6 +247,69 @@ function App() {
   const moveEntity=useCallback((key,idx,dir)=>upd(p=>{const items=[...p[key]];const ni=idx+dir;if(ni<0||ni>=items.length) return p;[items[idx],items[ni]]=[items[ni],items[idx]];return{...p,[key]:items};}),[upd]);
 
   const exportData=useCallback(()=>{const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`${data.storyTitle||"story"}_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);},[data]);
+
+  const exportMarkdown=useCallback(()=>{
+    let md=`# ${data.storyTitle||"ストーリー"}\n\n`;
+    if(data.storySynopsis) md+=`## あらすじ\n\n${data.storySynopsis}\n\n`;
+    if(data.characters.length){
+      md+=`---\n\n## 登場人物\n\n`;
+      data.characters.forEach(c=>{
+        md+=`### ${charName(c)}\n\n`;
+        const lines=[];
+        const g=data.genders.find(x=>x.id===c.genderId); if(g) lines.push(`**性別:** ${g.name}`);
+        if(c.birthday) lines.push(`**誕生日:** ${c.birthday}`);
+        if(c.deathDate) lines.push(`**死亡日:** ${c.deathDate}`);
+        const grps=c.relatedGroups.map(r=>{const grp=data.groups.find(x=>x.id===r.groupId);return grp?(r.position?`${grp.name}（${r.position}）`:grp.name):null;}).filter(Boolean);
+        if(grps.length) lines.push(`**所属:** ${grps.join("、")}`);
+        const rels=c.relatedCharacters.map(r=>{const ch=data.characters.find(x=>x.id===r.charId);if(!ch) return null;let s=charName(ch);const sub=[r.callName&&`${r.callName}と呼ぶ`,r.calledName&&`${r.calledName}と呼ばれる`].filter(Boolean);if(sub.length) s+=`（${sub.join("・")}）`;return s;}).filter(Boolean);
+        if(rels.length) lines.push(`**関連人物:** ${rels.join("、")}`);
+        data.parameters.forEach(p=>{const pv=c.parameters.find(x=>x.paramId===p.id);if(pv&&pv.value) lines.push(`**${p.name}:** ${pv.value}`);});
+        const ab=c.abilities.map(a=>{const ap=data.abilityParams.find(x=>x.id===a.paramId);return ap?`${ap.name}: ${a.value}`:null;}).filter(Boolean);
+        if(ab.length) lines.push(`**能力値:** ${ab.join(" / ")}`);
+        if(lines.length) md+=lines.join("  \n")+"\n\n";
+        if(c.notes) md+=`${c.notes}\n\n`;
+      });
+    }
+    if(data.groups.length){
+      md+=`---\n\n## 集団\n\n`;
+      data.groups.forEach(g=>{
+        md+=`### ${g.name||"（無名）"}\n\n`;
+        if(g.description) md+=`${g.description}\n\n`;
+        const m=g.relatedCharacters.map(id=>{const ch=data.characters.find(c=>c.id===id);return ch?charName(ch):null;}).filter(Boolean);
+        if(m.length) md+=`**メンバー:** ${m.join("、")}\n\n`;
+        if(g.notes) md+=`${g.notes}\n\n`;
+      });
+    }
+    if(data.locations.length){ md+=`---\n\n## 場所\n\n`; data.locations.forEach(l=>{ md+=`### ${l.name||"（無名）"}\n\n`; if(l.description) md+=`${l.description}\n\n`; if(l.notes) md+=`${l.notes}\n\n`; }); }
+    if(data.terms.length){ md+=`---\n\n## 用語集\n\n`; data.terms.forEach(t=>{ md+=`### ${t.name||"（無名）"}\n\n`; if(t.description) md+=`${t.description}\n\n`; }); }
+    if(data.chapters.length){
+      md+=`---\n\n## 章構成\n\n`;
+      data.chapters.forEach((ch,idx)=>{
+        md+=`### ${ch.title||`第${idx+1}章`}\n\n`;
+        const sc=ch.relatedScenes.map(id=>data.scenes.find(s=>s.id===id)).filter(Boolean);
+        if(sc.length) md+=`**シーン:** ${sc.map(s=>s.title||"（無題）").join("、")}\n\n`;
+        if(ch.notes) md+=`${ch.notes}\n\n`;
+      });
+    }
+    if(data.scenes.length){
+      md+=`---\n\n## シーン\n\n`;
+      data.scenes.forEach(s=>{
+        md+=`### ${s.title||"（無題）"}\n\n`;
+        const info=[];
+        if(s.startDate){let d=s.startDate;if(s.endDate&&s.endDate!==s.startDate)d+=` → ${s.endDate}`;info.push(`**日時:** ${d}`);}
+        const chap=data.chapters.find(c=>c.id===s.relatedChapterId);if(chap) info.push(`**章:** ${chap.title||"（無題）"}`);
+        const loc=data.locations.find(l=>l.id===s.relatedLocationId);if(loc) info.push(`**場所:** ${loc.name}`);
+        const chars=s.relatedCharacters.map(id=>{const ch=data.characters.find(c=>c.id===id);return ch?charName(ch):null;}).filter(Boolean);
+        if(chars.length) info.push(`**登場人物:** ${chars.join("、")}`);
+        if(info.length) md+=info.join("  \n")+"\n\n";
+        if(s.notes) md+=`${s.notes}\n\n`;
+        if(s.script) md+=`\`\`\`\n${s.script}\n\`\`\`\n\n`;
+      });
+    }
+    const blob=new Blob([md],{type:"text/markdown;charset=utf-8"});
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`${data.storyTitle||"story"}.md`;a.click();URL.revokeObjectURL(url);
+  },[data]);
+
   const handleImport=useCallback((e)=>{const file=e.target.files[0];if(!file) return;const reader=new FileReader();reader.onload=(ev)=>{try{const imported=JSON.parse(ev.target.result);if(window.confirm("現在のデータを上書きして読み込みますか？")) setData(norm(imported));}catch{alert("ファイルの読み込みに失敗しました");}};reader.readAsText(file);e.target.value="";},[]);
 
   const saveChar=useCallback(ch=>{
@@ -294,7 +357,7 @@ function App() {
       return null;
     }
     switch(activeView.type){
-      case "storySettings": return (<div style={{ flex:1,overflowY:"auto",padding:16 }}><Inp label="ストーリータイトル" value={data.storyTitle} onChange={v=>upd(p=>({...p,storyTitle:v}))} placeholder="タイトルを入力..."/><Inp label="あらすじ" value={data.storySynopsis} onChange={v=>upd(p=>({...p,storySynopsis:v}))} rows={5} placeholder="ストーリーの概要..."/><Divider/><Field label="バックアップ"><div style={{ display:"flex",flexDirection:"column",gap:8 }}><Btn icon="download" onClick={exportData}>JSONでバックアップ</Btn><div><Btn icon="upload" onClick={()=>importRef.current.click()}>JSONを復元</Btn><input ref={importRef} type="file" accept=".json" style={{ display:"none" }} onChange={handleImport}/></div><div style={{ fontSize:11,color:C.hint,lineHeight:1.6 }}>データはSupabaseに自動保存されます。JSONバックアップは念のための保険です。</div></div></Field></div>);
+      case "storySettings": return (<div style={{ flex:1,overflowY:"auto",padding:16 }}><Inp label="ストーリータイトル" value={data.storyTitle} onChange={v=>upd(p=>({...p,storyTitle:v}))} placeholder="タイトルを入力..."/><Inp label="あらすじ" value={data.storySynopsis} onChange={v=>upd(p=>({...p,storySynopsis:v}))} rows={5} placeholder="ストーリーの概要..."/><Divider/><Field label="バックアップ"><div style={{ display:"flex",flexDirection:"column",gap:8 }}><Btn icon="download" onClick={exportData}>JSONでバックアップ</Btn><div><Btn icon="upload" onClick={()=>importRef.current.click()}>JSONを復元</Btn><input ref={importRef} type="file" accept=".json" style={{ display:"none" }} onChange={handleImport}/></div><div style={{ fontSize:11,color:C.hint,lineHeight:1.6 }}>データはSupabaseに自動保存されます。JSONバックアップは念のための保険です。</div></div></Field><Divider/><Field label="エクスポート"><div style={{ display:"flex",flexDirection:"column",gap:8 }}><Btn icon="download" onClick={exportMarkdown}>Markdownで書き出し（.md）</Btn><div style={{ fontSize:11,color:C.hint,lineHeight:1.6 }}>登場人物・シーン・章・用語など全情報を書き出します。Notion・Obsidian・テキストエディタで開けます。</div></div></Field></div>);
       case "characters": return <EntityList title="人物" icon="person" iconColor="#E8916E" items={data.characters} onAdd={()=>setModal({type:"character"})} onEdit={it=>setModal({type:"character",item:it})} onDelete={id=>del("characters",id)} renderName={charName} renderImage={c=>c.image||null} renderSubtitle={c=>{const g=data.genders.find(x=>x.id===c.genderId);return[g?g.name:null,c.birthday?`${c.birthday}生`:null].filter(Boolean).join(" · ")||null;}} renderTags={c=>c.relatedGroups.slice(0,2).map(r=>{const g=data.groups.find(x=>x.id===r.groupId);return g?{label:r.position?`${g.name}（${r.position}）`:g.name}:null;}).filter(Boolean)} onMoveUp={i=>moveEntity("characters",i,-1)} onMoveDown={i=>moveEntity("characters",i,1)}/>;
       case "groups": return <EntityList title="集団" icon="group" iconColor="#D9618A" items={data.groups} onAdd={()=>setModal({type:"group"})} onEdit={it=>setModal({type:"group",item:it})} onDelete={id=>del("groups",id)} renderName={g=>g.name||"（無名）"} renderSubtitle={g=>`${g.relatedCharacters.length}名が所属`} onMoveUp={i=>moveEntity("groups",i,-1)} onMoveDown={i=>moveEntity("groups",i,1)}/>;
       case "locations": return <EntityList title="場所" icon="pin" iconColor="#4CAF82" items={data.locations} onAdd={()=>setModal({type:"location"})} onEdit={it=>setModal({type:"location",item:it})} onDelete={id=>del("locations",id)} renderName={l=>l.name||"（無名）"} renderSubtitle={l=>l.description?l.description.slice(0,36):null} onMoveUp={i=>moveEntity("locations",i,-1)} onMoveDown={i=>moveEntity("locations",i,1)}/>;
