@@ -34,6 +34,7 @@ const calcAge = (birth,target) => { if(!birth||!target) return null; const b=new
 const compressImage = (dataUrl) => new Promise(resolve => { const img=new Image(); img.onload=()=>{ const max=800; let w=img.width,h=img.height; if(w>max||h>max){if(w>h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;}} const c=document.createElement("canvas"); c.width=w;c.height=h; c.getContext("2d").drawImage(img,0,0,w,h); resolve(c.toDataURL("image/jpeg",0.82)); }; img.src=dataUrl; });
 const countChars = (str) => { if(!str) return 0; return str.replace(/\s/g,"").length; };
 const storyChars = (d) => (d.scenes||[]).reduce((sum,s)=>sum+countChars(s.script),0);
+const mkSummary = (d) => ({ synopsis:(d.storySynopsis||"").slice(0,80), chars:(d.characters||[]).length, scenes:(d.scenes||[]).length, words:storyChars(d) });
 
 const norm = (d) => {
   if (!d) d = {};
@@ -335,13 +336,13 @@ function StoryList({ stories, onOpen, onCreate, onDuplicate, onDelete, onRename,
       {stories.length>3&&<div style={{ padding:"10px 16px 4px",background:C.surface }}><input value={q} onChange={e=>setQ(e.target.value)} placeholder="作品を検索..." style={{ ...IS(),padding:"9px 12px",background:C.bg }}/></div>}
       <div style={{ flex:1,overflowY:"auto",padding:"12px 12px 90px" }}>
         {stories.length===0?<div style={{ textAlign:"center",padding:"60px 20px",color:C.hint }}><div style={{ opacity:0.25,marginBottom:12 }}><Ico n="book" s={44} c={C.sub}/></div><div style={{ fontSize:13 }}>まだ作品がありません</div><div style={{ fontSize:12,marginTop:4 }}>下の「＋新しい作品」から始めましょう</div></div>:
-        filtered.map((st,i)=>{ const d=st._data; const upDisabled=q||i===0; const downDisabled=q||i===filtered.length-1; return (
+        filtered.map((st,i)=>{ const sm=st.summary; const upDisabled=q||i===0; const downDisabled=q||i===filtered.length-1; return (
           <div key={st.id} style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"14px 14px 12px",marginBottom:10,position:"relative" }}>
             <div onClick={()=>onOpen(st.id)} style={{ cursor:"pointer" }}>
               <div style={{ fontSize:15,fontWeight:700,color:C.text,marginBottom:4,paddingRight:28 }}>{st.title||"（無題）"}</div>
-              {d&&d.storySynopsis&&<div style={{ fontSize:12,color:C.sub,lineHeight:1.5,marginBottom:8,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden" }}>{d.storySynopsis.slice(0,60)}</div>}
+              {sm&&sm.synopsis&&<div style={{ fontSize:12,color:C.sub,lineHeight:1.5,marginBottom:8,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden" }}>{sm.synopsis}</div>}
               <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
-                {d&&<><span style={{ fontSize:11,color:C.hint }}>👤 {d.characters.length}</span><span style={{ fontSize:11,color:C.hint }}>🎬 {d.scenes.length}</span><span style={{ fontSize:11,color:C.hint }}>✍️ {storyChars(d).toLocaleString()}字</span></>}
+                {sm&&<><span style={{ fontSize:11,color:C.hint }}>👤 {sm.chars}</span><span style={{ fontSize:11,color:C.hint }}>🎬 {sm.scenes}</span><span style={{ fontSize:11,color:C.hint }}>✍️ {(sm.words||0).toLocaleString()}字</span></>}
                 {st.updated_at&&<span style={{ fontSize:11,color:C.hint,marginLeft:"auto" }}>{new Date(st.updated_at).toLocaleDateString("ja-JP",{month:"numeric",day:"numeric"})}</span>}
               </div>
             </div>
@@ -453,23 +454,25 @@ function App() {
   useEffect(()=>{
     if(!session){ setStories(null); setOpenId(null); setOpenData(null); setIdeas([]); return; }
     (async()=>{
-      // meta
-      let { data:meta } = await db.from("user_meta").select("*").eq("user_id",session.user.id).maybeSingle();
-      if(!meta){ await db.from("user_meta").insert({user_id:session.user.id,ideas:[],settings:{}}); meta={ideas:[],settings:{}}; }
-      setIdeas(meta.ideas||[]);
-      if(meta.settings){ if(meta.settings.theme){ setTheme(meta.settings.theme); localStorage.setItem("sc_theme",meta.settings.theme);} if(typeof meta.settings.darkMode==="boolean"){ setDark(meta.settings.darkMode); localStorage.setItem("sc_dark",meta.settings.darkMode?"1":"0"); } }
-      // stories
-      let { data:rows } = await db.from("stories").select("id,title,data,sort_order,updated_at").eq("user_id",session.user.id).order("sort_order",{ascending:true});
-      // migration from legacy story_data
-      if((!rows||rows.length===0)){
-        const { data:legacy } = await db.from("story_data").select("data").eq("user_id",session.user.id).limit(1);
-        if(legacy&&legacy.length>0&&legacy[0].data){
-          const d=norm(legacy[0].data);
-          const { data:ins } = await db.from("stories").insert({user_id:session.user.id,title:d.storyTitle||"新しいストーリー",data:d,sort_order:0}).select("id,title,data,sort_order,updated_at").single();
-          rows=ins?[ins]:[];
+      try {
+        // meta
+        let { data:meta } = await db.from("user_meta").select("*").eq("user_id",session.user.id).maybeSingle();
+        if(!meta){ await db.from("user_meta").insert({user_id:session.user.id,ideas:[],settings:{}}); meta={ideas:[],settings:{}}; }
+        setIdeas(meta.ideas||[]);
+        if(meta.settings){ if(meta.settings.theme){ setTheme(meta.settings.theme); localStorage.setItem("sc_theme",meta.settings.theme);} if(typeof meta.settings.darkMode==="boolean"){ setDark(meta.settings.darkMode); localStorage.setItem("sc_dark",meta.settings.darkMode?"1":"0"); } }
+        // stories: LIGHT list only (no data column) for fast load
+        let { data:rows } = await db.from("stories").select("id,title,sort_order,updated_at,summary").eq("user_id",session.user.id).order("sort_order",{ascending:true});
+        // migration from legacy story_data
+        if((!rows||rows.length===0)){
+          const { data:legacy } = await db.from("story_data").select("data").eq("user_id",session.user.id).limit(1);
+          if(legacy&&legacy.length>0&&legacy[0].data){
+            const d=norm(legacy[0].data);
+            const { data:ins } = await db.from("stories").insert({user_id:session.user.id,title:d.storyTitle||"新しいストーリー",data:d,sort_order:0,summary:mkSummary(d)}).select("id,title,sort_order,updated_at,summary").single();
+            rows=ins?[ins]:[];
+          }
         }
-      }
-      setStories((rows||[]).map(r=>({ id:r.id,title:r.title,sort_order:r.sort_order,updated_at:r.updated_at,_data:norm(r.data) })));
+        setStories((rows||[]).map(r=>({ id:r.id,title:r.title,sort_order:r.sort_order,updated_at:r.updated_at,summary:r.summary||null })));
+      } catch(e){ console.error(e); setStories([]); }
     })();
   },[session]);
 
@@ -478,8 +481,9 @@ function App() {
     if(!openData||!openId||!session) return;
     setSaveStatus("saving");
     const t=setTimeout(async()=>{
-      await db.from("stories").update({ data:openData, title:openData.storyTitle||"新しいストーリー", updated_at:new Date().toISOString() }).eq("id",openId);
-      setStories(prev=>prev?prev.map(s=>s.id===openId?{...s,title:openData.storyTitle,_data:openData,updated_at:new Date().toISOString()}:s):prev);
+      const summary=mkSummary(openData);
+      await db.from("stories").update({ data:openData, title:openData.storyTitle||"新しいストーリー", summary, updated_at:new Date().toISOString() }).eq("id",openId);
+      setStories(prev=>prev?prev.map(s=>s.id===openId?{...s,title:openData.storyTitle,summary,updated_at:new Date().toISOString()}:s):prev);
       setSaveStatus("saved");
     },1500);
     return ()=>clearTimeout(t);
@@ -490,24 +494,30 @@ function App() {
   const changeTheme=(k)=>{ setTheme(k); localStorage.setItem("sc_theme",k); applyTheme(k,dark); forceRender(x=>x+1); saveMeta({settings:{theme:k,darkMode:dark}}); };
   const changeDark=(v)=>{ setDark(v); localStorage.setItem("sc_dark",v?"1":"0"); applyTheme(theme,v); forceRender(x=>x+1); saveMeta({settings:{theme,darkMode:v}}); };
 
-  const openStory=(id)=>{ const st=stories.find(s=>s.id===id); if(!st) return; setOpenId(id); setOpenData(st._data); setScreen("editor"); };
+  // lazy-load full story data on open
+  const openStory=async(id)=>{
+    setScreen("editor"); setOpenId(id); setOpenData(null);
+    const { data:row } = await db.from("stories").select("data").eq("id",id).single();
+    setOpenData(norm(row?row.data:{}));
+  };
   const backToList=()=>{ setScreen("list"); setOpenId(null); setOpenData(null); };
 
   const createStory=async()=>{
     const d=norm({}); d.storyTitle="新しい作品";
     const maxOrder=stories.reduce((m,s)=>Math.max(m,s.sort_order),-1);
-    const { data:ins } = await db.from("stories").insert({user_id:session.user.id,title:d.storyTitle,data:d,sort_order:maxOrder+1}).select("id,title,data,sort_order,updated_at").single();
-    if(ins){ const st={id:ins.id,title:ins.title,sort_order:ins.sort_order,updated_at:ins.updated_at,_data:norm(ins.data)}; setStories([...stories,st]); setOpenId(ins.id); setOpenData(st._data); setScreen("editor"); }
+    const { data:ins } = await db.from("stories").insert({user_id:session.user.id,title:d.storyTitle,data:d,sort_order:maxOrder+1,summary:mkSummary(d)}).select("id,title,sort_order,updated_at,summary").single();
+    if(ins){ setStories([...stories,{id:ins.id,title:ins.title,sort_order:ins.sort_order,updated_at:ins.updated_at,summary:ins.summary}]); setScreen("editor"); setOpenId(ins.id); setOpenData(d); }
   };
   const duplicateStory=async(id)=>{
-    const st=stories.find(s=>s.id===id); if(!st) return;
-    const d={...st._data,storyTitle:`${st.title}のコピー`};
+    const { data:src } = await db.from("stories").select("data,title").eq("id",id).single();
+    if(!src) return;
+    const d={...norm(src.data),storyTitle:`${src.title}のコピー`};
     const maxOrder=stories.reduce((m,s)=>Math.max(m,s.sort_order),-1);
-    const { data:ins } = await db.from("stories").insert({user_id:session.user.id,title:d.storyTitle,data:d,sort_order:maxOrder+1}).select("id,title,data,sort_order,updated_at").single();
-    if(ins) setStories([...stories,{id:ins.id,title:ins.title,sort_order:ins.sort_order,updated_at:ins.updated_at,_data:norm(ins.data)}]);
+    const { data:ins } = await db.from("stories").insert({user_id:session.user.id,title:d.storyTitle,data:d,sort_order:maxOrder+1,summary:mkSummary(d)}).select("id,title,sort_order,updated_at,summary").single();
+    if(ins) setStories([...stories,{id:ins.id,title:ins.title,sort_order:ins.sort_order,updated_at:ins.updated_at,summary:ins.summary}]);
   };
   const deleteStory=async(id)=>{ await db.from("stories").delete().eq("id",id); setStories(stories.filter(s=>s.id!==id)); };
-  const renameStory=async(id,title)=>{ const t=title.trim()||"（無題）"; await db.from("stories").update({title:t}).eq("id",id); setStories(stories.map(s=>s.id===id?{...s,title:t,_data:{...s._data,storyTitle:t}}:s)); };
+  const renameStory=async(id,title)=>{ const t=title.trim()||"（無題）"; await db.from("stories").update({title:t}).eq("id",id); setStories(stories.map(s=>s.id===id?{...s,title:t}:s)); };
   const moveStory=async(idx,dir)=>{
     const arr=[...stories]; const ni=idx+dir; if(ni<0||ni>=arr.length) return;
     [arr[idx],arr[ni]]=[arr[ni],arr[idx]];
@@ -526,7 +536,7 @@ function App() {
   return (
     <div style={{ height:"100%",maxWidth:480,margin:"0 auto",background:C.bg,position:"relative",overflow:"hidden" }}>
       {screen==="list"&&<StoryList stories={stories} onOpen={openStory} onCreate={createStory} onDuplicate={duplicateStory} onDelete={deleteStory} onRename={renameStory} onMove={moveStory} onOpenSettings={()=>setScreen("settings")} onOpenIdeas={()=>setScreen("ideas")}/>}
-      {screen==="editor"&&openData&&<StoryEditor data={openData} setData={setOpenData} onBack={backToList} saveStatus={saveStatus}/>}
+      {screen==="editor"&&(openData?<StoryEditor data={openData} setData={setOpenData} onBack={backToList} saveStatus={saveStatus}/>:<div style={{ height:"100%",display:"flex",alignItems:"center",justifyContent:"center" }}><div style={{ fontSize:13,color:C.hint }}>作品を読み込み中...</div></div>)}
       {screen==="settings"&&<SettingsScreen onBack={()=>setScreen("list")} theme={theme} dark={dark} onTheme={changeTheme} onDark={changeDark} email={session.user.email} onLogout={()=>db.auth.signOut()}/>}
       {screen==="ideas"&&<IdeasScreen onBack={()=>setScreen("list")} ideas={ideas} onAdd={addIdea} onDelete={deleteIdea}/>}
     </div>
