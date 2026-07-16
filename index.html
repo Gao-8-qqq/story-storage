@@ -8,9 +8,10 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body, #root { height: 100%; }
-    body { background: #F8F9FA; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", sans-serif; -webkit-tap-highlight-color: transparent; overflow: hidden; }
-    input, select, textarea { font-size: 16px !important; }
+    body { background: var(--bg,#F8F9FA); font-family: var(--font, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", sans-serif); -webkit-tap-highlight-color: transparent; overflow: hidden; }
+    input, select, textarea { font-size: 16px !important; font-family: inherit; }
     textarea:focus, input:focus, select:focus { outline: none; }
+    ::-webkit-scrollbar { width: 0; height: 0; }
   </style>
 </head>
 <body>
@@ -26,10 +27,13 @@ const SUPABASE_URL = "https://odbbqlyxbuzgbkeuohfq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_OyA6NcZ1gAm4mcU7A0eEpg_xhDiXY6N";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// ===================== UTILS =====================
 const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2,9)}`;
 const charName = (ch) => { if (!ch) return "（不明）"; const n = ch.nameOrder==="last_first"?`${ch.lastName} ${ch.firstName}`:`${ch.firstName} ${ch.lastName}`; return n.trim()||"（無名）"; };
 const calcAge = (birth,target) => { if(!birth||!target) return null; const b=new Date(birth),t=new Date(target); let age=t.getFullYear()-b.getFullYear(); const m=t.getMonth()-b.getMonth(); if(m<0||(m===0&&t.getDate()<b.getDate())) age--; return age>=0?age:null; };
 const compressImage = (dataUrl) => new Promise(resolve => { const img=new Image(); img.onload=()=>{ const max=800; let w=img.width,h=img.height; if(w>max||h>max){if(w>h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;}} const c=document.createElement("canvas"); c.width=w;c.height=h; c.getContext("2d").drawImage(img,0,0,w,h); resolve(c.toDataURL("image/jpeg",0.82)); }; img.src=dataUrl; });
+const countChars = (str) => { if(!str) return 0; return str.replace(/\s/g,"").length; };
+const storyChars = (d) => (d.scenes||[]).reduce((sum,s)=>sum+countChars(s.script),0);
 
 const norm = (d) => {
   if (!d) d = {};
@@ -51,10 +55,26 @@ const norm = (d) => {
   };
 };
 
-const persist = async (d) => { try { await window.storage && window.storage.set("sc","x"); } catch{} };
+// ===================== THEMES =====================
+const THEMES = {
+  mono:   { label:"モノクロ", accentColor:"#1F2937", light:{ bg:"#F8F9FA",surface:"#FFFFFF",border:"#E4E7EB",borderL:"#F0F2F5",text:"#111827",sub:"#6B7280",hint:"#9CA3AF",accent:"#1F2937",accentFg:"#FFF",tag:"#F3F4F6",tagTxt:"#4B5563",danger:"#EF4444",font:"" }, dark:{ bg:"#0F1115",surface:"#1A1D23",border:"#2A2E37",borderL:"#22262E",text:"#F3F4F6",sub:"#9CA3AF",hint:"#6B7280",accent:"#E5E7EB",accentFg:"#111827",tag:"#252A32",tagTxt:"#B8BEC8",danger:"#F87171",font:"" } },
+  orange: { label:"オレンジ", accentColor:"#E8720C", light:{ bg:"#FDF9F4",surface:"#FFFFFF",border:"#F0E4D6",borderL:"#F7EFE5",text:"#3A2C1E",sub:"#8A7A66",hint:"#B8A992",accent:"#E8720C",accentFg:"#FFF",tag:"#FCEEDD",tagTxt:"#B5651A",danger:"#EF4444",font:"" }, dark:{ bg:"#1A1410",surface:"#241C15",border:"#3A2E22",borderL:"#2E241B",text:"#F5EDE2",sub:"#B8A992",hint:"#7D7061",accent:"#F5943A",accentFg:"#241C15",tag:"#33271C",tagTxt:"#E0A76B",danger:"#F87171",font:"" } },
+  yellow: { label:"イエロー", accentColor:"#D9A404", light:{ bg:"#FEFCF3",surface:"#FFFFFF",border:"#EFE8D0",borderL:"#F6F1E2",text:"#3A3418",sub:"#877E5A",hint:"#B5AC86",accent:"#C99700",accentFg:"#FFF",tag:"#FBF3D8",tagTxt:"#A67F0A",danger:"#EF4444",font:"" }, dark:{ bg:"#181509",surface:"#221E10",border:"#38311A",borderL:"#2C2614",text:"#F5EFD9",sub:"#B5AC86",hint:"#7D765A",accent:"#EBC544",accentFg:"#221E10",tag:"#332C16",tagTxt:"#DCC168",danger:"#F87171",font:"" } },
+  navy:   { label:"ネイビー", accentColor:"#3B5BA8", light:{ bg:"#F4F6FB",surface:"#FFFFFF",border:"#DBE1EE",borderL:"#EAEEF6",text:"#1A2238",sub:"#5C6B8A",hint:"#94A0BC",accent:"#3B5BA8",accentFg:"#FFF",tag:"#E7ECF7",tagTxt:"#3B5BA8",danger:"#EF4444",font:"" }, dark:{ bg:"#0E121F",surface:"#171D30",border:"#28304A",borderL:"#1E263B",text:"#E8ECF6",sub:"#94A0BC",hint:"#5C6B8A",accent:"#6B8BD6",accentFg:"#141A2B",tag:"#20283F",tagTxt:"#9DB2E0",danger:"#F87171",font:"" } },
+  aqua:   { label:"アクア", accentColor:"#0E9BB5", light:{ bg:"#F2FAFB",surface:"#FFFFFF",border:"#D4EBEF",borderL:"#E5F4F6",text:"#123338",sub:"#5B8288",hint:"#8FB4B9",accent:"#0E9BB5",accentFg:"#FFF",tag:"#DEF3F6",tagTxt:"#0E8299",danger:"#EF4444",font:"" }, dark:{ bg:"#0A1618",surface:"#122224",border:"#1F383C",borderL:"#182C2F",text:"#E2F3F5",sub:"#8FB4B9",hint:"#5B8288",accent:"#3EC3DB",accentFg:"#0F2226",tag:"#193034",tagTxt:"#77CEDD",danger:"#F87171",font:"" } },
+  paper:  { label:"紙とインク", accentColor:"#8A6D3B", light:{ bg:"#F7F3EB",surface:"#FDFBF6",border:"#E4DBC9",borderL:"#EFE8D9",text:"#4A3F35",sub:"#8A7B67",hint:"#B3A78F",accent:"#8A6D3B",accentFg:"#FDFBF6",tag:"#EEE6D5",tagTxt:"#7A6033",danger:"#C0562F",font:'"Hiragino Mincho ProN","Yu Mincho",serif' }, dark:{ bg:"#211C16",surface:"#2A241C",border:"#3D3529",borderL:"#332C22",text:"#EDE4D4",sub:"#B3A78F",hint:"#7A6F5C",accent:"#C9A968",accentFg:"#2A241C",tag:"#372F24",tagTxt:"#D4BC85",danger:"#D8734A",font:'"Hiragino Mincho ProN","Yu Mincho",serif' } },
+};
+let C = { ...THEMES.mono.light };
+const applyTheme = (themeKey, dark) => {
+  const t = THEMES[themeKey] || THEMES.mono;
+  const pal = (dark && t.dark) ? t.dark : t.light;
+  C = { ...pal };
+  const r = document.documentElement.style;
+  r.setProperty("--bg", pal.bg);
+  r.setProperty("--font", pal.font || '-apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", sans-serif');
+};
 
-const C = { bg:"#F8F9FA",surface:"#FFFFFF",border:"#E4E7EB",borderL:"#F0F2F5",text:"#111827",sub:"#6B7280",hint:"#9CA3AF",accent:"#1F2937",accentFg:"#FFF",tag:"#F3F4F6",tagTxt:"#4B5563",danger:"#EF4444" };
-
+// ===================== ICONS =====================
 const Ico = ({ n, s=20, c="currentColor", sw=1.5 }) => {
   const d = {
     person:<><circle cx="12" cy="8" r="4"/><path d="M4 20v-1a8 8 0 0116 0v1"/></>,
@@ -75,6 +95,7 @@ const Ico = ({ n, s=20, c="currentColor", sw=1.5 }) => {
     timeline:<><path d="M2 12h20"/><circle cx="6" cy="12" r="2.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="2.5" fill="currentColor" stroke="none"/><path d="M6 4v5M12 4v5M18 4v5M6 15v5M12 15v5M18 15v5"/></>,
     check:<path d="M20 6L9 17l-5-5"/>,
     chevR:<path d="M9 18l6-6-6-6"/>,
+    chevL:<path d="M15 18l-6-6 6-6"/>,
     chevU:<path d="M18 15l-6-6-6 6"/>,
     chevD:<path d="M6 9l6 6 6-6"/>,
     save:<><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></>,
@@ -82,33 +103,40 @@ const Ico = ({ n, s=20, c="currentColor", sw=1.5 }) => {
     download:<><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
     upload:<><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>,
     logout:<><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></>,
+    copy:<><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></>,
+    dots:<><circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none"/></>,
+    bulb:<><path d="M9 18h6M10 21h4M12 2a7 7 0 00-4 12.7c.6.5 1 1.3 1 2.1V17h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0012 2z"/></>,
+    moon:<path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/>,
+    sun:<><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></>,
+    home:<><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></>,
+    palette:<><circle cx="13.5" cy="6.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="17" cy="10.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="8.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12" r="1.2" fill="currentColor" stroke="none"/><path d="M12 2a10 10 0 000 20c1.7 0 2-1.3 1.2-2.3-.8-1-.4-2.2.8-2.4l1.5-.2A5 5 0 0022 12 10 10 0 0012 2z"/></>,
   };
   return <svg viewBox="0 0 24 24" width={s} height={s} fill="none" stroke={c} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">{d[n]||null}</svg>;
 };
 
+// ===================== BASE UI =====================
 const Tag = ({ label, color, onRemove }) => (<span style={{ display:"inline-flex",alignItems:"center",gap:3,padding:"2px 8px",borderRadius:20,fontSize:11,background:color?color+"22":C.tag,color:color||C.tagTxt,border:`1px solid ${color||C.border}`,fontWeight:500 }}>{label}{onRemove&&<button onClick={onRemove} style={{ border:"none",background:"transparent",padding:0,cursor:"pointer",display:"flex",opacity:0.5,lineHeight:0 }}><Ico n="x" s={9} c="currentColor"/></button>}</span>);
 const Lbl = ({ children }) => <div style={{ fontSize:11,color:C.sub,marginBottom:4,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.4px" }}>{children}</div>;
 const Field = ({ label, children, mb=14 }) => <div style={{ marginBottom:mb }}>{label&&<Lbl>{label}</Lbl>}{children}</div>;
-const IS = { width:"100%",padding:"9px 10px",border:`1px solid ${C.border}`,borderRadius:8,color:C.text,background:C.surface,boxSizing:"border-box",fontFamily:"inherit" };
-const Inp = ({ label, value, onChange, type="text", placeholder, rows }) => <Field label={label}>{rows?<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} style={{ ...IS,resize:"vertical" }}/>:<input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={IS}/>}</Field>;
-const Sel = ({ label, value, onChange, options }) => <Field label={label}><select value={value} onChange={e=>onChange(e.target.value)} style={{ ...IS,cursor:"pointer" }}><option value="">-- 未選択 --</option>{options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></Field>;
-const Btn = ({ children, onClick, variant="default", small, icon, full }) => { const vs={default:{bg:C.surface,cl:C.text,br:`1px solid ${C.border}`},primary:{bg:C.accent,cl:C.accentFg,br:"none"},danger:{bg:C.danger,cl:"#fff",br:"none"},ghost:{bg:"transparent",cl:C.sub,br:"none"}}; const v=vs[variant]||vs.default; return <button onClick={onClick} style={{ display:"inline-flex",alignItems:"center",gap:5,padding:small?"5px 10px":"9px 14px",borderRadius:8,border:v.br,background:v.bg,color:v.cl,fontSize:small?12:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",width:full?"100%":"auto",justifyContent:full?"center":"flex-start" }}>{icon&&<Ico n={icon} s={small?13:15} c={v.cl}/>}{children}</button>; };
-const Divider = () => <div style={{ height:1,background:C.border,margin:"12px 0" }}/>;
+const IS = () => ({ width:"100%",padding:"10px 12px",border:`1px solid ${C.border}`,borderRadius:10,color:C.text,background:C.surface,boxSizing:"border-box",fontFamily:"inherit" });
+const Inp = ({ label, value, onChange, type="text", placeholder, rows }) => <Field label={label}>{rows?<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} style={{ ...IS(),resize:"vertical" }}/>:<input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={IS()}/>}</Field>;
+const Sel = ({ label, value, onChange, options }) => <Field label={label}><select value={value} onChange={e=>onChange(e.target.value)} style={{ ...IS(),cursor:"pointer" }}><option value="">-- 未選択 --</option>{options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></Field>;
+const Btn = ({ children, onClick, variant="default", small, icon, full }) => { const vs={default:{bg:C.surface,cl:C.text,br:`1px solid ${C.border}`},primary:{bg:C.accent,cl:C.accentFg,br:"none"},danger:{bg:C.danger,cl:"#fff",br:"none"},ghost:{bg:"transparent",cl:C.sub,br:"none"}}; const v=vs[variant]||vs.default; return <button onClick={onClick} style={{ display:"inline-flex",alignItems:"center",gap:5,padding:small?"7px 12px":"11px 16px",borderRadius:10,border:v.br,background:v.bg,color:v.cl,fontSize:small?12:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",width:full?"100%":"auto",justifyContent:full?"center":"flex-start",minHeight:small?0:44 }}>{icon&&<Ico n={icon} s={small?13:15} c={v.cl}/>}{children}</button>; };
+const Divider = () => <div style={{ height:1,background:C.border,margin:"14px 0" }}/>;
 
-const ImageUpload = ({ value, onChange }) => { const ref=useRef(); return (<Field label="キャラクター画像"><div style={{ display:"flex",gap:12,alignItems:"center" }}><div onClick={()=>ref.current.click()} style={{ width:72,height:72,borderRadius:12,border:`2px dashed ${value?"transparent":C.border}`,overflow:"hidden",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",background:value?"transparent":C.bg,flexShrink:0 }}>{value?<img src={value} style={{ width:"100%",height:"100%",objectFit:"cover" }}/>:<Ico n="camera" s={22} c={C.hint}/>}</div><div style={{ display:"flex",flexDirection:"column",gap:6 }}><Btn small onClick={()=>ref.current.click()} icon="camera">{value?"変更":"画像を選択"}</Btn>{value&&<Btn small variant="ghost" onClick={()=>onChange("")}>削除</Btn>}</div><input ref={ref} type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>onChange(await compressImage(ev.target.result)); r.readAsDataURL(f); e.target.value=""; }}/></div></Field>); };
+const ImageUpload = ({ value, onChange }) => { const ref=useRef(); return (<Field label="キャラクター画像"><div style={{ display:"flex",gap:12,alignItems:"center" }}><div onClick={()=>ref.current.click()} style={{ width:72,height:72,borderRadius:14,border:`2px dashed ${value?"transparent":C.border}`,overflow:"hidden",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",background:value?"transparent":C.bg,flexShrink:0 }}>{value?<img src={value} style={{ width:"100%",height:"100%",objectFit:"cover" }}/>:<Ico n="camera" s={22} c={C.hint}/>}</div><div style={{ display:"flex",flexDirection:"column",gap:6 }}><Btn small onClick={()=>ref.current.click()} icon="camera">{value?"変更":"画像を選択"}</Btn>{value&&<Btn small variant="ghost" onClick={()=>onChange("")}>削除</Btn>}</div><input ref={ref} type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>onChange(await compressImage(ev.target.result)); r.readAsDataURL(f); e.target.value=""; }}/></div></Field>); };
 
 const AdditiveLinker = ({ available, onAdd, getLabel, getColor, placeholder="追加して紐付け" }) => {
   const [open,setOpen]=useState(false);
   const [q,setQ]=useState("");
   const filtered=available.filter(x=>getLabel(x).includes(q));
   const close=()=>{ setOpen(false); setQ(""); };
-  return (<><button onClick={()=>setOpen(true)} style={{ display:"flex",alignItems:"center",gap:6,width:"100%",padding:"9px 12px",border:`1.5px dashed ${C.border}`,borderRadius:9,background:"transparent",color:C.hint,cursor:"pointer",fontFamily:"inherit",fontSize:13 }}><Ico n="plus" s={14} c={C.hint}/>{placeholder}</button>{open&&(<div style={{ position:"fixed",inset:0,zIndex:2000,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"flex-end",justifyContent:"center" }} onClick={e=>{ if(e.target===e.currentTarget) close(); }}><div style={{ background:C.surface,borderRadius:"14px 14px 0 0",width:"100%",maxWidth:500,maxHeight:"65vh",display:"flex",flexDirection:"column" }}><div style={{ display:"flex",alignItems:"center",gap:8,padding:"12px 14px 10px",borderBottom:`1px solid ${C.border}`,flexShrink:0 }}><input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="検索..." style={{ flex:1,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 10px",color:C.text,fontFamily:"inherit",outline:"none",background:C.bg }}/><button onClick={close} style={{ border:"none",background:"transparent",cursor:"pointer",padding:4,display:"flex" }}><Ico n="x" s={18} c={C.sub}/></button></div><div style={{ overflowY:"auto",flex:1 }}>{filtered.length===0?<div style={{ textAlign:"center",padding:"28px 0",color:C.hint,fontSize:13 }}>{available.length===0?"追加できるデータがありません":"見つかりません"}</div>:filtered.map(x=>(<div key={x.id} onClick={()=>{ onAdd(x.id); close(); }} style={{ display:"flex",alignItems:"center",gap:10,padding:"13px 16px",borderBottom:`1px solid ${C.borderL}`,cursor:"pointer" }}>{getColor&&getColor(x)&&<div style={{ width:8,height:8,borderRadius:"50%",background:getColor(x),flexShrink:0 }}/>}<span style={{ fontSize:14,color:C.text,flex:1 }}>{getLabel(x)}</span><Ico n="plus" s={15} c={C.hint}/></div>))}</div></div></div>)}</>);
+  return (<><button onClick={()=>setOpen(true)} style={{ display:"flex",alignItems:"center",gap:6,width:"100%",padding:"11px 12px",border:`1.5px dashed ${C.border}`,borderRadius:10,background:"transparent",color:C.hint,cursor:"pointer",fontFamily:"inherit",fontSize:13,minHeight:44 }}><Ico n="plus" s={14} c={C.hint}/>{placeholder}</button>{open&&(<div style={{ position:"fixed",inset:0,zIndex:2000,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"flex-end",justifyContent:"center" }} onClick={e=>{ if(e.target===e.currentTarget) close(); }}><div style={{ background:C.surface,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:500,maxHeight:"65vh",display:"flex",flexDirection:"column" }}><div style={{ display:"flex",alignItems:"center",gap:8,padding:"12px 14px 10px",borderBottom:`1px solid ${C.border}`,flexShrink:0 }}><input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="検索..." style={{ flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",color:C.text,fontFamily:"inherit",outline:"none",background:C.bg }}/><button onClick={close} style={{ border:"none",background:"transparent",cursor:"pointer",padding:4,display:"flex" }}><Ico n="x" s={18} c={C.sub}/></button></div><div style={{ overflowY:"auto",flex:1 }}>{filtered.length===0?<div style={{ textAlign:"center",padding:"28px 0",color:C.hint,fontSize:13 }}>{available.length===0?"追加できるデータがありません":"見つかりません"}</div>:filtered.map(x=>(<div key={x.id} onClick={()=>{ onAdd(x.id); close(); }} style={{ display:"flex",alignItems:"center",gap:10,padding:"14px 16px",borderBottom:`1px solid ${C.borderL}`,cursor:"pointer" }}>{getColor&&getColor(x)&&<div style={{ width:8,height:8,borderRadius:"50%",background:getColor(x),flexShrink:0 }}/>}<span style={{ fontSize:14,color:C.text,flex:1 }}>{getLabel(x)}</span><Ico n="plus" s={15} c={C.hint}/></div>))}</div></div></div>)}</>);
 };
 
-const CharRelCard = ({ rel, character, onUpdate, onRemove }) => (<div style={{ border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 12px",marginBottom:6 }}><div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}><div style={{ display:"flex",alignItems:"center",gap:7 }}>{character.image?<img src={character.image} style={{ width:24,height:24,borderRadius:"50%",objectFit:"cover" }}/>:<div style={{ width:24,height:24,borderRadius:"50%",background:(character.imageColor||"#ccc")+"30",display:"flex",alignItems:"center",justifyContent:"center" }}><Ico n="person" s={13} c={character.imageColor||C.hint}/></div>}<span style={{ fontSize:13,fontWeight:600,color:C.text }}>{charName(character)}</span></div><button onClick={onRemove} style={{ border:"none",background:"transparent",cursor:"pointer",padding:3,opacity:0.4 }}><Ico n="x" s={14} c={C.text}/></button></div><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}><div><Lbl>呼び方</Lbl><input value={rel.callName||""} onChange={e=>onUpdate({...rel,callName:e.target.value})} placeholder="相手をどう呼ぶか" style={{ ...IS,padding:"5px 8px" }}/></div><div><Lbl>呼ばれ方</Lbl><input value={rel.calledName||""} onChange={e=>onUpdate({...rel,calledName:e.target.value})} placeholder="どう呼ばれるか" style={{ ...IS,padding:"5px 8px" }}/></div></div></div>);
-const GroupRelCard = ({ rel, group, onUpdate, onRemove }) => (<div style={{ border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 12px",marginBottom:6 }}><div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}><div style={{ display:"flex",alignItems:"center",gap:6 }}><Ico n="group" s={14} c={C.hint}/><span style={{ fontSize:13,fontWeight:600,color:C.text }}>{group.name||"（無名）"}</span></div><button onClick={onRemove} style={{ border:"none",background:"transparent",cursor:"pointer",padding:3,opacity:0.4 }}><Ico n="x" s={14} c={C.text}/></button></div><div><Lbl>立ち位置</Lbl><input value={rel.position||""} onChange={e=>onUpdate({...rel,position:e.target.value})} placeholder="例：リーダー、新入り..." style={{ ...IS,padding:"5px 8px" }}/></div></div>);
+const CharRelCard = ({ rel, character, onUpdate, onRemove }) => (<div style={{ border:`1px solid ${C.border}`,borderRadius:11,padding:"11px 12px",marginBottom:6 }}><div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}><div style={{ display:"flex",alignItems:"center",gap:7 }}>{character.image?<img src={character.image} style={{ width:24,height:24,borderRadius:"50%",objectFit:"cover" }}/>:<div style={{ width:24,height:24,borderRadius:"50%",background:(character.imageColor||"#ccc")+"30",display:"flex",alignItems:"center",justifyContent:"center" }}><Ico n="person" s={13} c={character.imageColor||C.hint}/></div>}<span style={{ fontSize:13,fontWeight:600,color:C.text }}>{charName(character)}</span></div><button onClick={onRemove} style={{ border:"none",background:"transparent",cursor:"pointer",padding:3,opacity:0.4 }}><Ico n="x" s={14} c={C.text}/></button></div><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}><div><Lbl>呼び方</Lbl><input value={rel.callName||""} onChange={e=>onUpdate({...rel,callName:e.target.value})} placeholder="相手をどう呼ぶか" style={{ ...IS(),padding:"7px 9px" }}/></div><div><Lbl>呼ばれ方</Lbl><input value={rel.calledName||""} onChange={e=>onUpdate({...rel,calledName:e.target.value})} placeholder="どう呼ばれるか" style={{ ...IS(),padding:"7px 9px" }}/></div></div></div>);
+const GroupRelCard = ({ rel, group, onUpdate, onRemove }) => (<div style={{ border:`1px solid ${C.border}`,borderRadius:11,padding:"11px 12px",marginBottom:6 }}><div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}><div style={{ display:"flex",alignItems:"center",gap:6 }}><Ico n="group" s={14} c={C.hint}/><span style={{ fontSize:13,fontWeight:600,color:C.text }}>{group.name||"（無名）"}</span></div><button onClick={onRemove} style={{ border:"none",background:"transparent",cursor:"pointer",padding:3,opacity:0.4 }}><Ico n="x" s={14} c={C.text}/></button></div><div><Lbl>立ち位置</Lbl><input value={rel.position||""} onChange={e=>onUpdate({...rel,position:e.target.value})} placeholder="例：リーダー、新入り..." style={{ ...IS(),padding:"7px 9px" }}/></div></div>);
 
-// ===== RADAR CHART =====
 const RadarChart = ({ params, values, color="#5B9BD5", size=200 }) => {
   if (!params||params.length<3) return (<div style={{ textAlign:"center",padding:"20px 0",color:C.hint,fontSize:12,lineHeight:1.6 }}>能力項目を3つ以上追加すると<br/>チャートが表示されます</div>);
   const cx=size/2,cy=size/2,r=size*0.36;
@@ -120,33 +148,33 @@ const RadarChart = ({ params, values, color="#5B9BD5", size=200 }) => {
   const grids=[0.25,0.5,0.75,1.0].map(lv=>params.map((_,i)=>`${(cx+r*lv*Math.cos(ang(i))).toFixed(1)},${(cy+r*lv*Math.sin(ang(i))).toFixed(1)}`).join(" "));
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display:"block",margin:"0 auto" }}>
-      {grids.map((g,i)=><polygon key={i} points={g} fill={i===3?"#F8F9FA":"none"} stroke="#E4E7EB" strokeWidth="0.8"/>)}
-      {axisEnd.map((p,i)=><line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#E4E7EB" strokeWidth="0.8"/>)}
+      {grids.map((g,i)=><polygon key={i} points={g} fill={i===3?C.bg:"none"} stroke={C.border} strokeWidth="0.8"/>)}
+      {axisEnd.map((p,i)=><line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke={C.border} strokeWidth="0.8"/>)}
       <polygon points={polyStr} fill={(color||"#5B9BD5")+"44"} stroke={color||"#5B9BD5"} strokeWidth="2"/>
       {valuePts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="3.5" fill={color||"#5B9BD5"}/>)}
-      {params.map((p,i)=>{ const ep=axisEnd[i]; const dx=ep.x-cx,dy=ep.y-cy; const len=Math.sqrt(dx*dx+dy*dy)||1; const lx=ep.x+(dx/len)*18; const ly=ep.y+(dy/len)*16; return <text key={i} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill="#6B7280" fontFamily="-apple-system,sans-serif">{p.name}</text>; })}
+      {params.map((p,i)=>{ const ep=axisEnd[i]; const dx=ep.x-cx,dy=ep.y-cy; const len=Math.sqrt(dx*dx+dy*dy)||1; const lx=ep.x+(dx/len)*18; const ly=ep.y+(dy/len)*16; return <text key={i} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill={C.sub}>{p.name}</text>; })}
     </svg>
   );
 };
 
-const Modal = ({ title, onClose, children, footer }) => (<div style={{ position:"fixed",inset:0,zIndex:1000,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center" }}><div style={{ background:C.surface,borderRadius:"14px 14px 0 0",width:"100%",maxWidth:500,maxHeight:"92vh",display:"flex",flexDirection:"column" }}><div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px 12px",borderBottom:`1px solid ${C.border}`,flexShrink:0 }}><span style={{ fontSize:15,fontWeight:600,color:C.text }}>{title}</span><button onClick={onClose} style={{ background:"none",border:"none",cursor:"pointer",padding:4,display:"flex" }}><Ico n="x" s={17} c={C.sub}/></button></div><div style={{ overflowY:"auto",padding:16,flex:1 }}>{children}</div>{footer&&<div style={{ padding:"10px 16px 18px",borderTop:`1px solid ${C.border}`,display:"flex",gap:8,flexShrink:0 }}>{footer}</div>}</div></div>);
-const Tabs = ({ tabs, active, onChange }) => (<div style={{ display:"flex",gap:2,marginBottom:16,background:C.bg,borderRadius:10,padding:3 }}>{tabs.map(t=><button key={t.key} onClick={()=>onChange(t.key)} style={{ flex:1,padding:"6px 4px",borderRadius:8,border:"none",background:active===t.key?C.surface:"transparent",color:active===t.key?C.text:C.hint,fontSize:12,fontWeight:active===t.key?600:400,cursor:"pointer",fontFamily:"inherit",boxShadow:active===t.key?"0 1px 3px rgba(0,0,0,0.07)":"none" }}>{t.label}</button>)}</div>);
+const Modal = ({ title, onClose, children, footer }) => (<div style={{ position:"fixed",inset:0,zIndex:1000,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center" }}><div style={{ background:C.surface,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:500,maxHeight:"92vh",display:"flex",flexDirection:"column" }}><div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 16px 12px",borderBottom:`1px solid ${C.border}`,flexShrink:0 }}><span style={{ fontSize:15,fontWeight:600,color:C.text }}>{title}</span><button onClick={onClose} style={{ background:"none",border:"none",cursor:"pointer",padding:4,display:"flex" }}><Ico n="x" s={17} c={C.sub}/></button></div><div style={{ overflowY:"auto",padding:16,flex:1 }}>{children}</div>{footer&&<div style={{ padding:"10px 16px 18px",borderTop:`1px solid ${C.border}`,display:"flex",gap:8,flexShrink:0 }}>{footer}</div>}</div></div>);
+const Tabs = ({ tabs, active, onChange }) => (<div style={{ display:"flex",gap:2,marginBottom:16,background:C.bg,borderRadius:12,padding:3 }}>{tabs.map(t=><button key={t.key} onClick={()=>onChange(t.key)} style={{ flex:1,padding:"8px 4px",borderRadius:9,border:"none",background:active===t.key?C.surface:"transparent",color:active===t.key?C.text:C.hint,fontSize:12,fontWeight:active===t.key?600:400,cursor:"pointer",fontFamily:"inherit",boxShadow:active===t.key?"0 1px 3px rgba(0,0,0,0.07)":"none" }}>{t.label}</button>)}</div>);
 
-const EntityCard = ({ icon, iconColor, name, subtitle, tags, onClick, onDelete, onMoveUp, onMoveDown, image }) => (<div onClick={onClick} style={{ display:"flex",alignItems:"center",padding:"10px 14px",borderBottom:`1px solid ${C.borderL}`,cursor:"pointer",background:C.surface,gap:10 }}>{(onMoveUp!==undefined||onMoveDown!==undefined)&&(<div style={{ display:"flex",flexDirection:"column",gap:1,flexShrink:0 }}><button onClick={e=>{e.stopPropagation();onMoveUp&&onMoveUp();}} style={{ border:"none",background:"transparent",cursor:onMoveUp?"pointer":"default",padding:"2px 3px",opacity:onMoveUp?0.5:0.15,lineHeight:0 }}><Ico n="chevU" s={13} c={C.text}/></button><button onClick={e=>{e.stopPropagation();onMoveDown&&onMoveDown();}} style={{ border:"none",background:"transparent",cursor:onMoveDown?"pointer":"default",padding:"2px 3px",opacity:onMoveDown?0.5:0.15,lineHeight:0 }}><Ico n="chevD" s={13} c={C.text}/></button></div>)}<div style={{ width:38,height:38,borderRadius:9,background:iconColor?iconColor+"18":C.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden" }}>{image?<img src={image} style={{ width:"100%",height:"100%",objectFit:"cover" }}/>:<Ico n={icon} s={18} c={iconColor||C.hint}/>}</div><div style={{ flex:1,minWidth:0 }}><div style={{ fontSize:13,fontWeight:600,color:C.text,marginBottom:1 }}>{name||"（無題）"}</div>{subtitle&&<div style={{ fontSize:11,color:C.sub }}>{subtitle}</div>}{tags&&tags.length>0&&<div style={{ display:"flex",flexWrap:"wrap",gap:3,marginTop:3 }}>{tags.slice(0,3).map((t,i)=><Tag key={i} label={t.label} color={t.color}/>)}</div>}</div><div style={{ display:"flex",gap:2,flexShrink:0,alignItems:"center" }}><button onClick={e=>{e.stopPropagation();onDelete();}} style={{ background:"none",border:"none",cursor:"pointer",padding:5,display:"flex",opacity:0.35 }}><Ico n="trash" s={14} c={C.text}/></button><Ico n="chevR" s={15} c={C.hint}/></div></div>);
+const EntityCard = ({ icon, iconColor, name, subtitle, tags, onClick, onDelete, onMoveUp, onMoveDown, image }) => (<div onClick={onClick} style={{ display:"flex",alignItems:"center",padding:"11px 14px",borderBottom:`1px solid ${C.borderL}`,cursor:"pointer",background:C.surface,gap:10,minHeight:44 }}>{(onMoveUp!==undefined||onMoveDown!==undefined)&&(<div style={{ display:"flex",flexDirection:"column",gap:1,flexShrink:0 }}><button onClick={e=>{e.stopPropagation();onMoveUp&&onMoveUp();}} style={{ border:"none",background:"transparent",cursor:onMoveUp?"pointer":"default",padding:"3px 3px",opacity:onMoveUp?0.5:0.15,lineHeight:0 }}><Ico n="chevU" s={13} c={C.text}/></button><button onClick={e=>{e.stopPropagation();onMoveDown&&onMoveDown();}} style={{ border:"none",background:"transparent",cursor:onMoveDown?"pointer":"default",padding:"3px 3px",opacity:onMoveDown?0.5:0.15,lineHeight:0 }}><Ico n="chevD" s={13} c={C.text}/></button></div>)}<div style={{ width:40,height:40,borderRadius:11,background:iconColor?iconColor+"18":C.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden" }}>{image?<img src={image} style={{ width:"100%",height:"100%",objectFit:"cover" }}/>:<Ico n={icon} s={18} c={iconColor||C.hint}/>}</div><div style={{ flex:1,minWidth:0 }}><div style={{ fontSize:13.5,fontWeight:600,color:C.text,marginBottom:1 }}>{name||"（無題）"}</div>{subtitle&&<div style={{ fontSize:11,color:C.sub }}>{subtitle}</div>}{tags&&tags.length>0&&<div style={{ display:"flex",flexWrap:"wrap",gap:3,marginTop:3 }}>{tags.slice(0,3).map((t,i)=><Tag key={i} label={t.label} color={t.color}/>)}</div>}</div><div style={{ display:"flex",gap:2,flexShrink:0,alignItems:"center" }}><button onClick={e=>{e.stopPropagation();onDelete();}} style={{ background:"none",border:"none",cursor:"pointer",padding:6,display:"flex",opacity:0.35 }}><Ico n="trash" s={14} c={C.text}/></button><Ico n="chevR" s={15} c={C.hint}/></div></div>);
 
-const EntityList = ({ title, icon, iconColor, items, onAdd, onEdit, onDelete, renderName, renderSubtitle, renderTags, renderImage, onMoveUp, onMoveDown }) => (<div style={{ flex:1,display:"flex",flexDirection:"column",overflow:"hidden" }}><div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 16px",borderBottom:`1px solid ${C.border}`,background:C.surface,flexShrink:0 }}><div style={{ display:"flex",alignItems:"center",gap:7 }}><Ico n={icon} s={16} c={iconColor||C.hint}/><span style={{ fontSize:14,fontWeight:600,color:C.text }}>{title}</span><span style={{ fontSize:11,color:C.hint,background:C.tag,padding:"1px 7px",borderRadius:10 }}>{items.length}</span></div><button onClick={onAdd} style={{ display:"flex",alignItems:"center",gap:4,padding:"6px 12px",background:C.accent,color:C.accentFg,border:"none",borderRadius:18,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}><Ico n="plus" s={11} c={C.accentFg}/>追加</button></div><div style={{ flex:1,overflowY:"auto",background:C.surface }}>{items.length===0?<div style={{ textAlign:"center",padding:"36px 20px" }}><div style={{ opacity:0.2,marginBottom:8 }}><Ico n={icon} s={36} c={C.sub}/></div><div style={{ fontSize:12,color:C.hint }}>まだ{title}がありません</div></div>:items.map((item,i)=><EntityCard key={item.id} icon={icon} iconColor={item.imageColor||item.color||iconColor} image={renderImage?renderImage(item):null} name={renderName(item)} subtitle={renderSubtitle?renderSubtitle(item):null} tags={renderTags?renderTags(item):null} onClick={()=>onEdit(item)} onDelete={()=>onDelete(item.id)} onMoveUp={onMoveUp&&i>0?()=>onMoveUp(i):onMoveUp!==undefined?null:undefined} onMoveDown={onMoveDown&&i<items.length-1?()=>onMoveDown(i):onMoveDown!==undefined?null:undefined}/>)}</div></div>);
+const EntityList = ({ title, icon, iconColor, items, onAdd, onEdit, onDelete, renderName, renderSubtitle, renderTags, renderImage, onMoveUp, onMoveDown }) => (<div style={{ flex:1,display:"flex",flexDirection:"column",overflow:"hidden" }}><div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:`1px solid ${C.border}`,background:C.surface,flexShrink:0 }}><div style={{ display:"flex",alignItems:"center",gap:7 }}><Ico n={icon} s={16} c={iconColor||C.hint}/><span style={{ fontSize:14,fontWeight:600,color:C.text }}>{title}</span><span style={{ fontSize:11,color:C.hint,background:C.tag,padding:"1px 7px",borderRadius:10 }}>{items.length}</span></div><button onClick={onAdd} style={{ display:"flex",alignItems:"center",gap:4,padding:"7px 13px",background:C.accent,color:C.accentFg,border:"none",borderRadius:20,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}><Ico n="plus" s={11} c={C.accentFg}/>追加</button></div><div style={{ flex:1,overflowY:"auto",background:C.surface }}>{items.length===0?<div style={{ textAlign:"center",padding:"40px 20px" }}><div style={{ opacity:0.2,marginBottom:8 }}><Ico n={icon} s={36} c={C.sub}/></div><div style={{ fontSize:12,color:C.hint }}>まだ{title}がありません</div></div>:items.map((item,i)=><EntityCard key={item.id} icon={icon} iconColor={item.imageColor||item.color||iconColor} image={renderImage?renderImage(item):null} name={renderName(item)} subtitle={renderSubtitle?renderSubtitle(item):null} tags={renderTags?renderTags(item):null} onClick={()=>onEdit(item)} onDelete={()=>onDelete(item.id)} onMoveUp={onMoveUp&&i>0?()=>onMoveUp(i):onMoveUp!==undefined?null:undefined} onMoveDown={onMoveDown&&i<items.length-1?()=>onMoveDown(i):onMoveDown!==undefined?null:undefined}/>)}</div></div>);
 
-// ===== LOGIN SCREEN =====
+// ===================== LOGIN =====================
 const LoginScreen = () => {
   const [email,setEmail]=useState(""); const [password,setPassword]=useState(""); const [mode,setMode]=useState("login"); const [loading,setLoading]=useState(false); const [msg,setMsg]=useState(""); const [isErr,setIsErr]=useState(false);
   const handle = async () => { if(!email||!password){setMsg("メールアドレスとパスワードを入力してください");setIsErr(true);return;} setLoading(true);setMsg("");
     if(mode==="login"){ const {error}=await db.auth.signInWithPassword({email,password}); if(error){setMsg("ログインに失敗しました。メールアドレスとパスワードを確認してください。");setIsErr(true);} }
     else { const {error}=await db.auth.signUp({email,password}); if(error){setMsg(error.message);setIsErr(true);} else{setMsg("アカウントを作成しました！そのままログインできます。");setIsErr(false);} }
     setLoading(false); };
-  return (<div style={{ height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:C.bg,padding:24 }}><div style={{ width:"100%",maxWidth:360,background:C.surface,borderRadius:16,padding:28,border:`1px solid ${C.border}` }}><div style={{ fontSize:18,fontWeight:700,color:C.text,marginBottom:4 }}>創作管理アプリ</div><div style={{ fontSize:13,color:C.sub,marginBottom:24 }}>{mode==="login"?"ログイン":"新規登録"}</div><Inp label="メールアドレス" value={email} onChange={setEmail} type="email" placeholder="example@email.com"/><Inp label="パスワード" value={password} onChange={setPassword} type="password" placeholder="6文字以上"/>{msg&&<div style={{ fontSize:12,color:isErr?C.danger:"#10B981",marginBottom:12,lineHeight:1.5 }}>{msg}</div>}<Btn variant="primary" full onClick={handle}>{loading?"処理中...":mode==="login"?"ログイン":"登録する"}</Btn><button onClick={()=>{setMode(mode==="login"?"signup":"login");setMsg("");}} style={{ marginTop:14,width:"100%",background:"none",border:"none",color:C.hint,fontSize:12,cursor:"pointer",textAlign:"center",fontFamily:"inherit" }}>{mode==="login"?"アカウントをお持ちでない方 → 新規登録":"すでにアカウントをお持ちの方 → ログイン"}</button></div></div>);
+  return (<div style={{ height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:C.bg,padding:24 }}><div style={{ width:"100%",maxWidth:360,background:C.surface,borderRadius:18,padding:28,border:`1px solid ${C.border}` }}><div style={{ fontSize:18,fontWeight:700,color:C.text,marginBottom:4 }}>創作管理アプリ</div><div style={{ fontSize:13,color:C.sub,marginBottom:24 }}>{mode==="login"?"ログイン":"新規登録"}</div><Inp label="メールアドレス" value={email} onChange={setEmail} type="email" placeholder="example@email.com"/><Inp label="パスワード" value={password} onChange={setPassword} type="password" placeholder="6文字以上"/>{msg&&<div style={{ fontSize:12,color:isErr?C.danger:"#10B981",marginBottom:12,lineHeight:1.5 }}>{msg}</div>}<Btn variant="primary" full onClick={handle}>{loading?"処理中...":mode==="login"?"ログイン":"登録する"}</Btn><button onClick={()=>{setMode(mode==="login"?"signup":"login");setMsg("");}} style={{ marginTop:14,width:"100%",background:"none",border:"none",color:C.hint,fontSize:12,cursor:"pointer",textAlign:"center",fontFamily:"inherit" }}>{mode==="login"?"アカウントをお持ちでない方 → 新規登録":"すでにアカウントをお持ちの方 → ログイン"}</button></div></div>);
 };
 
-// ===== CHARACTER EDIT =====
+// ===================== EDIT MODALS (unchanged logic) =====================
 const CharacterEdit = ({ char: init, data, onSave, onClose, onDelete }) => {
   const [c,setC]=useState(init||{id:uid(),lastName:"",firstName:"",lastNameFuri:"",firstNameFuri:"",nameOrder:"last_first",genderId:"",imageColor:"#8EA3C3",image:"",birthday:"",deathDate:"",notes:"",relatedCharacters:[],relatedGroups:[],relatedTerms:[],parameters:[],abilities:[]});
   const u=(k,v)=>setC(p=>({...p,[k]:v}));
@@ -156,47 +184,23 @@ const CharacterEdit = ({ char: init, data, onSave, onClose, onDelete }) => {
   const removeAbility=(pid)=>u("abilities",c.abilities.filter(x=>x.paramId!==pid));
   const includedParams=data.abilityParams.filter(p=>c.abilities.some(a=>a.paramId===p.id));
   const availableParams=data.abilityParams.filter(p=>!c.abilities.some(a=>a.paramId===p.id));
-
   return (<Modal title={charName(c)||"新しい人物"} onClose={onClose} footer={<>{init&&<Btn variant="danger" icon="trash" small onClick={onDelete}>削除</Btn>}<div style={{ flex:1 }}/><Btn variant="primary" icon="save" onClick={()=>onSave(c)}>保存</Btn></>}>
     <Tabs active={tab} onChange={setTab} tabs={[{key:"basic",label:"基本情報"},{key:"links",label:"紐付け"},{key:"ability",label:"能力値"},{key:"params",label:"パラメータ"}]}/>
-    {tab==="basic"&&<><ImageUpload value={c.image} onChange={v=>u("image",v)}/><Field label="名前の順序"><div style={{ display:"flex",gap:6 }}>{[["last_first","姓 → 名"],["first_last","名 → 姓"]].map(([v,l])=><button key={v} onClick={()=>u("nameOrder",v)} style={{ padding:"5px 12px",borderRadius:18,border:`1.5px solid ${c.nameOrder===v?C.accent:C.border}`,background:c.nameOrder===v?C.accent:C.surface,color:c.nameOrder===v?C.accentFg:C.sub,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:500 }}>{l}</button>)}</div></Field>
+    {tab==="basic"&&<><ImageUpload value={c.image} onChange={v=>u("image",v)}/><Field label="名前の順序"><div style={{ display:"flex",gap:6 }}>{[["last_first","姓 → 名"],["first_last","名 → 姓"]].map(([v,l])=><button key={v} onClick={()=>u("nameOrder",v)} style={{ padding:"6px 13px",borderRadius:18,border:`1.5px solid ${c.nameOrder===v?C.accent:C.border}`,background:c.nameOrder===v?C.accent:C.surface,color:c.nameOrder===v?C.accentFg:C.sub,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:500 }}>{l}</button>)}</div></Field>
     {c.nameOrder==="last_first"?<><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}><Inp label="姓" value={c.lastName} onChange={v=>u("lastName",v)} placeholder="山田"/><Inp label="名" value={c.firstName} onChange={v=>u("firstName",v)} placeholder="太郎"/></div><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}><Inp label="姓（ふりがな）" value={c.lastNameFuri} onChange={v=>u("lastNameFuri",v)} placeholder="やまだ"/><Inp label="名（ふりがな）" value={c.firstNameFuri} onChange={v=>u("firstNameFuri",v)} placeholder="たろう"/></div></>:<><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}><Inp label="名" value={c.firstName} onChange={v=>u("firstName",v)} placeholder="太郎"/><Inp label="姓" value={c.lastName} onChange={v=>u("lastName",v)} placeholder="山田"/></div><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}><Inp label="名（ふりがな）" value={c.firstNameFuri} onChange={v=>u("firstNameFuri",v)} placeholder="たろう"/><Inp label="姓（ふりがな）" value={c.lastNameFuri} onChange={v=>u("lastNameFuri",v)} placeholder="やまだ"/></div></>}
-    <Sel label="性別" value={c.genderId} onChange={v=>u("genderId",v)} options={data.genders.map(g=>({value:g.id,label:g.name}))}/><Field label="イメージカラー"><div style={{ display:"flex",gap:10,alignItems:"center" }}><input type="color" value={c.imageColor} onChange={e=>u("imageColor",e.target.value)} style={{ width:34,height:34,border:`1px solid ${C.border}`,borderRadius:7,cursor:"pointer",padding:2 }}/><span style={{ fontSize:12,color:C.sub }}>{c.imageColor}</span></div></Field>
+    <Sel label="性別" value={c.genderId} onChange={v=>u("genderId",v)} options={data.genders.map(g=>({value:g.id,label:g.name}))}/><Field label="イメージカラー"><div style={{ display:"flex",gap:10,alignItems:"center" }}><input type="color" value={c.imageColor} onChange={e=>u("imageColor",e.target.value)} style={{ width:36,height:36,border:`1px solid ${C.border}`,borderRadius:8,cursor:"pointer",padding:2 }}/><span style={{ fontSize:12,color:C.sub }}>{c.imageColor}</span></div></Field>
     <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}><Inp label="誕生日" value={c.birthday} onChange={v=>u("birthday",v)} type="date"/><Inp label="死亡日" value={c.deathDate} onChange={v=>u("deathDate",v)} type="date"/></div><Inp label="備考" value={c.notes} onChange={v=>u("notes",v)} rows={3} placeholder="メモ・設定など..."/></>}
     {tab==="links"&&<>
-      <Field label="関連人物" mb={16}>
-        {c.relatedCharacters.map(rel=>{const ch=data.characters.find(x=>x.id===rel.charId);return ch?<CharRelCard key={rel.charId} rel={rel} character={ch} onUpdate={up=>u("relatedCharacters",c.relatedCharacters.map(r=>r.charId===up.charId?up:r))} onRemove={()=>u("relatedCharacters",c.relatedCharacters.filter(r=>r.charId!==rel.charId))}/>:null;})}
-        <AdditiveLinker available={data.characters.filter(ch=>ch.id!==c.id&&!c.relatedCharacters.some(r=>r.charId===ch.id))} onAdd={id=>u("relatedCharacters",[...c.relatedCharacters,{charId:id,callName:"",calledName:""}])} getLabel={charName} getColor={ch=>ch.imageColor}/>
-      </Field>
+      <Field label="関連人物" mb={16}>{c.relatedCharacters.map(rel=>{const ch=data.characters.find(x=>x.id===rel.charId);return ch?<CharRelCard key={rel.charId} rel={rel} character={ch} onUpdate={up=>u("relatedCharacters",c.relatedCharacters.map(r=>r.charId===up.charId?up:r))} onRemove={()=>u("relatedCharacters",c.relatedCharacters.filter(r=>r.charId!==rel.charId))}/>:null;})}<AdditiveLinker available={data.characters.filter(ch=>ch.id!==c.id&&!c.relatedCharacters.some(r=>r.charId===ch.id))} onAdd={id=>u("relatedCharacters",[...c.relatedCharacters,{charId:id,callName:"",calledName:""}])} getLabel={charName} getColor={ch=>ch.imageColor}/></Field>
       <Divider/>
-      <Field label="関連集団" mb={16}>
-        {c.relatedGroups.map(rel=>{const g=data.groups.find(x=>x.id===rel.groupId);return g?<GroupRelCard key={rel.groupId} rel={rel} group={g} onUpdate={up=>u("relatedGroups",c.relatedGroups.map(r=>r.groupId===up.groupId?up:r))} onRemove={()=>u("relatedGroups",c.relatedGroups.filter(r=>r.groupId!==rel.groupId))}/>:null;})}
-        <AdditiveLinker available={data.groups.filter(g=>!c.relatedGroups.some(r=>r.groupId===g.id))} onAdd={id=>u("relatedGroups",[...c.relatedGroups,{groupId:id,position:""}])} getLabel={g=>g.name||"（無名）"}/>
-      </Field>
+      <Field label="関連集団" mb={16}>{c.relatedGroups.map(rel=>{const g=data.groups.find(x=>x.id===rel.groupId);return g?<GroupRelCard key={rel.groupId} rel={rel} group={g} onUpdate={up=>u("relatedGroups",c.relatedGroups.map(r=>r.groupId===up.groupId?up:r))} onRemove={()=>u("relatedGroups",c.relatedGroups.filter(r=>r.groupId!==rel.groupId))}/>:null;})}<AdditiveLinker available={data.groups.filter(g=>!c.relatedGroups.some(r=>r.groupId===g.id))} onAdd={id=>u("relatedGroups",[...c.relatedGroups,{groupId:id,position:""}])} getLabel={g=>g.name||"（無名）"}/></Field>
       <Divider/>
-      <Field label="関連用語" mb={0}>
-        <div style={{ display:"flex",flexWrap:"wrap",gap:5,marginBottom:8 }}>{c.relatedTerms.map(id=>{const t=data.terms.find(x=>x.id===id);return t?<Tag key={id} label={t.name} onRemove={()=>u("relatedTerms",c.relatedTerms.filter(x=>x!==id))}/>:null;})}</div>
-        <AdditiveLinker available={data.terms.filter(t=>!c.relatedTerms.includes(t.id))} onAdd={id=>u("relatedTerms",[...c.relatedTerms,id])} getLabel={t=>t.name||"（無名）"}/>
-      </Field>
+      <Field label="関連用語" mb={0}><div style={{ display:"flex",flexWrap:"wrap",gap:5,marginBottom:8 }}>{c.relatedTerms.map(id=>{const t=data.terms.find(x=>x.id===id);return t?<Tag key={id} label={t.name} onRemove={()=>u("relatedTerms",c.relatedTerms.filter(x=>x!==id))}/>:null;})}</div><AdditiveLinker available={data.terms.filter(t=>!c.relatedTerms.includes(t.id))} onAdd={id=>u("relatedTerms",[...c.relatedTerms,id])} getLabel={t=>t.name||"（無名）"}/></Field>
     </>}
     {tab==="ability"&&<>
-      <div style={{ background:C.bg,borderRadius:12,padding:"16px 8px",marginBottom:16 }}>
-        <RadarChart params={includedParams} values={c.abilities} color={c.imageColor||"#5B9BD5"} size={200}/>
-      </div>
-      {data.abilityParams.length===0?<div style={{ textAlign:"center",padding:"12px 0",color:C.hint,fontSize:13 }}>副要素 → 能力値チャートで項目を追加してください</div>:
-      <>
-        {includedParams.map(p=>(
-          <div key={p.id} style={{ marginBottom:14 }}>
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
-              <span style={{ fontSize:13,fontWeight:600,color:C.text }}>{p.name}</span>
-              <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                <span style={{ fontSize:13,fontWeight:700,color:c.imageColor||C.accent,minWidth:28,textAlign:"right" }}>{getAbilityVal(p.id)}</span>
-                <button onClick={()=>removeAbility(p.id)} style={{ border:"none",background:"transparent",cursor:"pointer",padding:2,opacity:0.35 }}><Ico n="x" s={14} c={C.text}/></button>
-              </div>
-            </div>
-            <input type="range" min="0" max="100" value={getAbilityVal(p.id)} onChange={e=>setAbilityVal(p.id,e.target.value)} style={{ width:"100%",accentColor:c.imageColor||C.accent }}/>
-          </div>
-        ))}
+      <div style={{ background:C.bg,borderRadius:14,padding:"16px 8px",marginBottom:16 }}><RadarChart params={includedParams} values={c.abilities} color={c.imageColor||C.accent} size={200}/></div>
+      {data.abilityParams.length===0?<div style={{ textAlign:"center",padding:"12px 0",color:C.hint,fontSize:13 }}>副要素 → 能力値チャートで項目を追加してください</div>:<>
+        {includedParams.map(p=>(<div key={p.id} style={{ marginBottom:14 }}><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}><span style={{ fontSize:13,fontWeight:600,color:C.text }}>{p.name}</span><div style={{ display:"flex",alignItems:"center",gap:8 }}><span style={{ fontSize:13,fontWeight:700,color:c.imageColor||C.accent,minWidth:28,textAlign:"right" }}>{getAbilityVal(p.id)}</span><button onClick={()=>removeAbility(p.id)} style={{ border:"none",background:"transparent",cursor:"pointer",padding:2,opacity:0.35 }}><Ico n="x" s={14} c={C.text}/></button></div></div><input type="range" min="0" max="100" value={getAbilityVal(p.id)} onChange={e=>setAbilityVal(p.id,e.target.value)} style={{ width:"100%",accentColor:c.imageColor||C.accent }}/></div>))}
         {availableParams.length>0&&<AdditiveLinker available={availableParams} onAdd={id=>setAbilityVal(id,50)} getLabel={p=>p.name||"（無名）"} placeholder="能力項目を追加"/>}
       </>}
     </>}
@@ -211,157 +215,67 @@ const SceneEdit = ({ scene: init, data, onSave, onClose, onDelete }) => {
   return (<Modal title={s.title||"新しいシーン"} onClose={onClose} footer={<>{init&&<Btn variant="danger" icon="trash" small onClick={onDelete}>削除</Btn>}<div style={{ flex:1 }}/><Btn variant="primary" icon="save" onClick={()=>onSave(s)}>保存</Btn></>}>
     <Tabs active={tab} onChange={setTab} tabs={[{key:"basic",label:"基本"},{key:"script",label:"脚本"},{key:"links",label:"紐付け"}]}/>
     {tab==="basic"&&<><Inp label="シーンタイトル" value={s.title} onChange={v=>u("title",v)} placeholder="タイトルを入力..."/><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}><Inp label="開始日時" value={s.startDate} onChange={v=>u("startDate",v)} type="date"/><Inp label="終了日時" value={s.endDate} onChange={v=>u("endDate",v)} type="date"/></div>
-    {s.startDate&&s.relatedCharacters.length>0&&<div style={{ background:"#F0F4FF",borderRadius:8,padding:"10px 12px",marginBottom:14 }}><Lbl>🎂 登場人物の年齢（開始日時点）</Lbl>{s.relatedCharacters.map(cid=>{const ch=data.characters.find(c=>c.id===cid);if(!ch||!ch.birthday) return null;const age=calcAge(ch.birthday,s.startDate);return age!==null?<div key={cid} style={{ display:"flex",gap:6,fontSize:12,marginBottom:1 }}><span style={{ color:ch.imageColor,fontWeight:700 }}>●</span><span>{charName(ch)}</span><span style={{ color:C.sub }}>{age}歳</span></div>:null;})}</div>}
+    {s.startDate&&s.relatedCharacters.length>0&&<div style={{ background:C.tag,borderRadius:10,padding:"10px 12px",marginBottom:14 }}><Lbl>🎂 登場人物の年齢（開始日時点）</Lbl>{s.relatedCharacters.map(cid=>{const ch=data.characters.find(c=>c.id===cid);if(!ch||!ch.birthday) return null;const age=calcAge(ch.birthday,s.startDate);return age!==null?<div key={cid} style={{ display:"flex",gap:6,fontSize:12,marginBottom:1 }}><span style={{ color:ch.imageColor,fontWeight:700 }}>●</span><span style={{color:C.text}}>{charName(ch)}</span><span style={{ color:C.sub }}>{age}歳</span></div>:null;})}</div>}
     <Sel label="関連場所" value={s.relatedLocationId} onChange={v=>u("relatedLocationId",v)} options={data.locations.map(l=>({value:l.id,label:l.name||"（無名）"}))}/>
     <Sel label="関連する章" value={s.relatedChapterId} onChange={v=>u("relatedChapterId",v)} options={data.chapters.map(c=>({value:c.id,label:c.title||"（無題）"}))}/><Inp label="備考" value={s.notes} onChange={v=>u("notes",v)} rows={3} placeholder="メモ..."/></>}
-    {tab==="script"&&<Inp label="脚本" value={s.script} onChange={v=>u("script",v)} rows={12} placeholder="シーンの脚本..."/>}
-    {tab==="links"&&<>
-      <Field label="関連人物" mb={16}><div style={{ display:"flex",flexWrap:"wrap",gap:5,marginBottom:8 }}>{s.relatedCharacters.map(id=>{const ch=data.characters.find(c=>c.id===id);return ch?<Tag key={id} label={charName(ch)} color={ch.imageColor} onRemove={()=>u("relatedCharacters",s.relatedCharacters.filter(x=>x!==id))}/>:null;})}</div><AdditiveLinker available={data.characters.filter(ch=>!s.relatedCharacters.includes(ch.id))} onAdd={id=>u("relatedCharacters",[...s.relatedCharacters,id])} getLabel={charName} getColor={ch=>ch.imageColor}/></Field>
-      <Divider/>
-      <Field label="関連用語" mb={0}><div style={{ display:"flex",flexWrap:"wrap",gap:5,marginBottom:8 }}>{s.relatedTerms.map(id=>{const t=data.terms.find(x=>x.id===id);return t?<Tag key={id} label={t.name} onRemove={()=>u("relatedTerms",s.relatedTerms.filter(x=>x!==id))}/>:null;})}</div><AdditiveLinker available={data.terms.filter(t=>!s.relatedTerms.includes(t.id))} onAdd={id=>u("relatedTerms",[...s.relatedTerms,id])} getLabel={t=>t.name||"（無名）"}/></Field>
-    </>}
+    {tab==="script"&&<><Inp label="脚本" value={s.script} onChange={v=>u("script",v)} rows={12} placeholder="シーンの脚本..."/><div style={{ textAlign:"right",fontSize:11,color:C.hint,marginTop:-8 }}>{countChars(s.script)}文字（空白除く） / {(s.script||"").length}文字</div></>}
+    {tab==="links"&&<><Field label="関連人物" mb={16}><div style={{ display:"flex",flexWrap:"wrap",gap:5,marginBottom:8 }}>{s.relatedCharacters.map(id=>{const ch=data.characters.find(c=>c.id===id);return ch?<Tag key={id} label={charName(ch)} color={ch.imageColor} onRemove={()=>u("relatedCharacters",s.relatedCharacters.filter(x=>x!==id))}/>:null;})}</div><AdditiveLinker available={data.characters.filter(ch=>!s.relatedCharacters.includes(ch.id))} onAdd={id=>u("relatedCharacters",[...s.relatedCharacters,id])} getLabel={charName} getColor={ch=>ch.imageColor}/></Field>
+      <Divider/><Field label="関連用語" mb={0}><div style={{ display:"flex",flexWrap:"wrap",gap:5,marginBottom:8 }}>{s.relatedTerms.map(id=>{const t=data.terms.find(x=>x.id===id);return t?<Tag key={id} label={t.name} onRemove={()=>u("relatedTerms",s.relatedTerms.filter(x=>x!==id))}/>:null;})}</div><AdditiveLinker available={data.terms.filter(t=>!s.relatedTerms.includes(t.id))} onAdd={id=>u("relatedTerms",[...s.relatedTerms,id])} getLabel={t=>t.name||"（無名）"}/></Field></>}
   </Modal>);
 };
 
 const ChapterEdit = ({ chapter: init, data, onSave, onClose, onDelete }) => { const [ch,setCh]=useState(init||{id:uid(),title:"",relatedScenes:[],notes:""}); const u=(k,v)=>setCh(p=>({...p,[k]:v})); return (<Modal title={ch.title||"新しい章"} onClose={onClose} footer={<>{init&&<Btn variant="danger" icon="trash" small onClick={onDelete}>削除</Btn>}<div style={{ flex:1 }}/><Btn variant="primary" icon="save" onClick={()=>onSave(ch)}>保存</Btn></>}><Inp label="章タイトル" value={ch.title} onChange={v=>u("title",v)} placeholder="第一章: ..."/><Field label="関連シーン" mb={14}><div style={{ display:"flex",flexWrap:"wrap",gap:5,marginBottom:8 }}>{ch.relatedScenes.map(id=>{const s=data.scenes.find(x=>x.id===id);return s?<Tag key={id} label={s.title||"（無題）"} onRemove={()=>u("relatedScenes",ch.relatedScenes.filter(x=>x!==id))}/>:null;})}</div><AdditiveLinker available={data.scenes.filter(s=>!ch.relatedScenes.includes(s.id))} onAdd={id=>u("relatedScenes",[...ch.relatedScenes,id])} getLabel={s=>s.title||"（無題）"}/></Field><Inp label="備考" value={ch.notes} onChange={v=>u("notes",v)} rows={3} placeholder="メモ..."/></Modal>); };
 
-const SimpleEdit = ({ item: init, entityName, fields, data, onSave, onClose, onDelete }) => { const defs={id:uid(),name:""}; fields.forEach(f=>{if(!(f.key in defs)) defs[f.key]=f.type==="links"?[]:""; }); const [item,setItem]=useState({...defs,...(init||{})}); const u=(k,v)=>setItem(p=>({...p,[k]:v})); return (<Modal title={item.name||`新しい${entityName}`} onClose={onClose} footer={<>{init&&<Btn variant="danger" icon="trash" small onClick={onDelete}>削除</Btn>}<div style={{ flex:1 }}/><Btn variant="primary" icon="save" onClick={()=>onSave(item)}>保存</Btn></>}>{fields.map(f=>{ if(f.type==="text") return <Inp key={f.key} label={f.label} value={item[f.key]||""} onChange={v=>u(f.key,v)} placeholder={f.placeholder}/>; if(f.type==="textarea") return <Inp key={f.key} label={f.label} value={item[f.key]||""} onChange={v=>u(f.key,v)} rows={3} placeholder={f.placeholder}/>; if(f.type==="color") return <Field key={f.key} label={f.label}><div style={{ display:"flex",gap:10,alignItems:"center" }}><input type="color" value={item[f.key]||"#888"} onChange={e=>u(f.key,e.target.value)} style={{ width:34,height:34,border:`1px solid ${C.border}`,borderRadius:7,cursor:"pointer",padding:2 }}/><span style={{ fontSize:12,color:C.sub }}>{item[f.key]}</span></div></Field>; if(f.type==="links") return <Field key={f.key} label={f.label} mb={14}><div style={{ display:"flex",flexWrap:"wrap",gap:5,marginBottom:8 }}>{(item[f.key]||[]).map(id=>{const x=(data[f.dataKey]||[]).find(d=>d.id===id);return x?<Tag key={id} label={f.getLabel?f.getLabel(x):(x.name||"?")} color={f.getColor?f.getColor(x):null} onRemove={()=>u(f.key,(item[f.key]||[]).filter(i=>i!==id))}/>:null;})}</div><AdditiveLinker available={(data[f.dataKey]||[]).filter(x=>!(item[f.key]||[]).includes(x.id))} onAdd={id=>u(f.key,[...(item[f.key]||[]),id])} getLabel={f.getLabel||(x=>x.name||"（無名）")} getColor={f.getColor}/></Field>; return null; })}</Modal>); };
+const SimpleEdit = ({ item: init, entityName, fields, data, onSave, onClose, onDelete }) => { const defs={id:uid(),name:""}; fields.forEach(f=>{if(!(f.key in defs)) defs[f.key]=f.type==="links"?[]:""; }); const [item,setItem]=useState({...defs,...(init||{})}); const u=(k,v)=>setItem(p=>({...p,[k]:v})); return (<Modal title={item.name||`新しい${entityName}`} onClose={onClose} footer={<>{init&&<Btn variant="danger" icon="trash" small onClick={onDelete}>削除</Btn>}<div style={{ flex:1 }}/><Btn variant="primary" icon="save" onClick={()=>onSave(item)}>保存</Btn></>}>{fields.map(f=>{ if(f.type==="text") return <Inp key={f.key} label={f.label} value={item[f.key]||""} onChange={v=>u(f.key,v)} placeholder={f.placeholder}/>; if(f.type==="textarea") return <Inp key={f.key} label={f.label} value={item[f.key]||""} onChange={v=>u(f.key,v)} rows={3} placeholder={f.placeholder}/>; if(f.type==="color") return <Field key={f.key} label={f.label}><div style={{ display:"flex",gap:10,alignItems:"center" }}><input type="color" value={item[f.key]||"#888"} onChange={e=>u(f.key,e.target.value)} style={{ width:36,height:36,border:`1px solid ${C.border}`,borderRadius:8,cursor:"pointer",padding:2 }}/><span style={{ fontSize:12,color:C.sub }}>{item[f.key]}</span></div></Field>; if(f.type==="links") return <Field key={f.key} label={f.label} mb={14}><div style={{ display:"flex",flexWrap:"wrap",gap:5,marginBottom:8 }}>{(item[f.key]||[]).map(id=>{const x=(data[f.dataKey]||[]).find(d=>d.id===id);return x?<Tag key={id} label={f.getLabel?f.getLabel(x):(x.name||"?")} color={f.getColor?f.getColor(x):null} onRemove={()=>u(f.key,(item[f.key]||[]).filter(i=>i!==id))}/>:null;})}</div><AdditiveLinker available={(data[f.dataKey]||[]).filter(x=>!(item[f.key]||[]).includes(x.id))} onAdd={id=>u(f.key,[...(item[f.key]||[]),id])} getLabel={f.getLabel||(x=>x.name||"（無名）")} getColor={f.getColor}/></Field>; return null; })}</Modal>); };
 
-const TimelineView = ({ data }) => { const scenes=[...data.scenes].filter(s=>s.startDate).sort((a,b)=>new Date(a.startDate)-new Date(b.startDate)); return (<div style={{ flex:1,overflowY:"auto",padding:16 }}><div style={{ fontSize:14,fontWeight:600,color:C.text,marginBottom:16 }}>タイムライン</div>{scenes.length===0?<div style={{ textAlign:"center",padding:"40px 0",color:C.hint,fontSize:13 }}>日付が設定されたシーンが表示されます</div>:scenes.map((sc,i)=>{ const chap=data.chapters.find(c=>c.id===sc.relatedChapterId); const chars=sc.relatedCharacters.map(id=>data.characters.find(c=>c.id===id)).filter(Boolean); return (<div key={sc.id} style={{ display:"flex",gap:10,marginBottom:8 }}><div style={{ display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0,paddingTop:3 }}><div style={{ width:8,height:8,borderRadius:"50%",background:C.accent,flexShrink:0 }}/>{i<scenes.length-1&&<div style={{ width:1,flex:1,background:C.border,marginTop:3 }}/>}</div><div style={{ flex:1,background:C.surface,borderRadius:9,padding:"10px 12px",border:`1px solid ${C.border}`,marginBottom:4 }}><div style={{ fontSize:10,color:C.hint,marginBottom:2 }}>{sc.startDate}{sc.endDate&&sc.endDate!==sc.startDate?` → ${sc.endDate}`:""}</div><div style={{ fontSize:13,fontWeight:600,color:C.text,marginBottom:5 }}>{sc.title||"（無題）"}</div><div style={{ display:"flex",flexWrap:"wrap",gap:3 }}>{chap&&<Tag label={chap.title||"（無題）"}/>}{chars.map(ch=><Tag key={ch.id} label={charName(ch)} color={ch.imageColor}/>)}</div></div></div>); })}</div>); };
+const TimelineView = ({ data }) => { const scenes=[...data.scenes].filter(s=>s.startDate).sort((a,b)=>new Date(a.startDate)-new Date(b.startDate)); return (<div style={{ flex:1,overflowY:"auto",padding:16 }}><div style={{ fontSize:14,fontWeight:600,color:C.text,marginBottom:16 }}>タイムライン</div>{scenes.length===0?<div style={{ textAlign:"center",padding:"40px 0",color:C.hint,fontSize:13 }}>日付が設定されたシーンが表示されます</div>:scenes.map((sc,i)=>{ const chap=data.chapters.find(c=>c.id===sc.relatedChapterId); const chars=sc.relatedCharacters.map(id=>data.characters.find(c=>c.id===id)).filter(Boolean); return (<div key={sc.id} style={{ display:"flex",gap:10,marginBottom:8 }}><div style={{ display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0,paddingTop:3 }}><div style={{ width:8,height:8,borderRadius:"50%",background:C.accent,flexShrink:0 }}/>{i<scenes.length-1&&<div style={{ width:1,flex:1,background:C.border,marginTop:3 }}/>}</div><div style={{ flex:1,background:C.surface,borderRadius:11,padding:"11px 12px",border:`1px solid ${C.border}`,marginBottom:4 }}><div style={{ fontSize:10,color:C.hint,marginBottom:2 }}>{sc.startDate}{sc.endDate&&sc.endDate!==sc.startDate?` → ${sc.endDate}`:""}</div><div style={{ fontSize:13,fontWeight:600,color:C.text,marginBottom:5 }}>{sc.title||"（無題）"}</div><div style={{ display:"flex",flexWrap:"wrap",gap:3 }}>{chap&&<Tag label={chap.title||"（無題）"}/>}{chars.map(ch=><Tag key={ch.id} label={charName(ch)} color={ch.imageColor}/>)}</div></div></div>); })}</div>); };
 
-// ===== MAIN APP =====
-function App() {
-  const [session,setSession]=useState(null); const [authLoading,setAuthLoading]=useState(true);
-  const [data,setData]=useState(null); const [dataId,setDataId]=useState(null);
-  const [saveStatus,setSaveStatus]=useState("saved");
+// ===================== STORY EDITOR (was App body) =====================
+function StoryEditor({ data, setData, onBack, saveStatus }) {
   const [activeTab,setActiveTab]=useState("elements"); const [activeView,setActiveView]=useState(null); const [modal,setModal]=useState(null);
   const importRef=useRef();
-
-  useEffect(()=>{ db.auth.getSession().then(({data:{session}})=>{setSession(session);setAuthLoading(false);}); const {data:{subscription}}=db.auth.onAuthStateChange((_e,s)=>setSession(s)); return ()=>subscription.unsubscribe(); },[]);
-  useEffect(()=>{ if(!session){setData(null);setDataId(null);return;} (async()=>{ const {data:rows}=await db.from("story_data").select("id, data").eq("user_id",session.user.id).limit(1); if(rows&&rows.length>0){setDataId(rows[0].id);setData(norm(rows[0].data));}else setData(norm({})); })(); },[session]);
-  useEffect(()=>{ if(!data||!session) return; setSaveStatus("saving"); const t=setTimeout(async()=>{ if(dataId){await db.from("story_data").update({data,updated_at:new Date().toISOString()}).eq("id",dataId);}else{const {data:row}=await db.from("story_data").insert({user_id:session.user.id,data}).select().single();if(row) setDataId(row.id);} setSaveStatus("saved"); },1500); return ()=>clearTimeout(t); },[data]);
-
-  const upd=useCallback(fn=>setData(p=>fn(p)),[]);
+  const upd=useCallback(fn=>setData(p=>fn(p)),[setData]);
   const upsert=useCallback((key,item)=>upd(p=>{const l=[...p[key]];const i=l.findIndex(x=>x.id===item.id);if(i>=0)l[i]=item;else l.push(item);return{...p,[key]:l};}),[upd]);
   const del=useCallback((key,id)=>{upd(p=>({...p,[key]:p[key].filter(x=>x.id!==id)}));setModal(null);},[upd]);
   const moveEntity=useCallback((key,idx,dir)=>upd(p=>{const items=[...p[key]];const ni=idx+dir;if(ni<0||ni>=items.length) return p;[items[idx],items[ni]]=[items[ni],items[idx]];return{...p,[key]:items};}),[upd]);
 
   const exportData=useCallback(()=>{const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`${data.storyTitle||"story"}_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);},[data]);
-
   const exportMarkdown=useCallback(()=>{
     let md=`# ${data.storyTitle||"ストーリー"}\n\n`;
     if(data.storySynopsis) md+=`## あらすじ\n\n${data.storySynopsis}\n\n`;
-    if(data.characters.length){
-      md+=`---\n\n## 登場人物\n\n`;
-      data.characters.forEach(c=>{
-        md+=`### ${charName(c)}\n\n`;
-        const lines=[];
-        const g=data.genders.find(x=>x.id===c.genderId); if(g) lines.push(`**性別:** ${g.name}`);
-        if(c.birthday) lines.push(`**誕生日:** ${c.birthday}`);
-        if(c.deathDate) lines.push(`**死亡日:** ${c.deathDate}`);
-        const grps=c.relatedGroups.map(r=>{const grp=data.groups.find(x=>x.id===r.groupId);return grp?(r.position?`${grp.name}（${r.position}）`:grp.name):null;}).filter(Boolean);
-        if(grps.length) lines.push(`**所属:** ${grps.join("、")}`);
-        const rels=c.relatedCharacters.map(r=>{const ch=data.characters.find(x=>x.id===r.charId);if(!ch) return null;let s=charName(ch);const sub=[r.callName&&`${r.callName}と呼ぶ`,r.calledName&&`${r.calledName}と呼ばれる`].filter(Boolean);if(sub.length) s+=`（${sub.join("・")}）`;return s;}).filter(Boolean);
-        if(rels.length) lines.push(`**関連人物:** ${rels.join("、")}`);
-        data.parameters.forEach(p=>{const pv=c.parameters.find(x=>x.paramId===p.id);if(pv&&pv.value) lines.push(`**${p.name}:** ${pv.value}`);});
-        const ab=c.abilities.map(a=>{const ap=data.abilityParams.find(x=>x.id===a.paramId);return ap?`${ap.name}: ${a.value}`:null;}).filter(Boolean);
-        if(ab.length) lines.push(`**能力値:** ${ab.join(" / ")}`);
-        if(lines.length) md+=lines.join("  \n")+"\n\n";
-        if(c.notes) md+=`${c.notes}\n\n`;
-      });
-    }
-    if(data.groups.length){
-      md+=`---\n\n## 集団\n\n`;
-      data.groups.forEach(g=>{
-        md+=`### ${g.name||"（無名）"}\n\n`;
-        if(g.description) md+=`${g.description}\n\n`;
-        const m=g.relatedCharacters.map(id=>{const ch=data.characters.find(c=>c.id===id);return ch?charName(ch):null;}).filter(Boolean);
-        if(m.length) md+=`**メンバー:** ${m.join("、")}\n\n`;
-        if(g.notes) md+=`${g.notes}\n\n`;
-      });
-    }
+    if(data.characters.length){ md+=`---\n\n## 登場人物\n\n`; data.characters.forEach(c=>{ md+=`### ${charName(c)}\n\n`; const lines=[]; const g=data.genders.find(x=>x.id===c.genderId); if(g) lines.push(`**性別:** ${g.name}`); if(c.birthday) lines.push(`**誕生日:** ${c.birthday}`); if(c.deathDate) lines.push(`**死亡日:** ${c.deathDate}`); const grps=c.relatedGroups.map(r=>{const grp=data.groups.find(x=>x.id===r.groupId);return grp?(r.position?`${grp.name}（${r.position}）`:grp.name):null;}).filter(Boolean); if(grps.length) lines.push(`**所属:** ${grps.join("、")}`); const rels=c.relatedCharacters.map(r=>{const ch=data.characters.find(x=>x.id===r.charId);if(!ch) return null;let s=charName(ch);const sub=[r.callName&&`${r.callName}と呼ぶ`,r.calledName&&`${r.calledName}と呼ばれる`].filter(Boolean);if(sub.length) s+=`（${sub.join("・")}）`;return s;}).filter(Boolean); if(rels.length) lines.push(`**関連人物:** ${rels.join("、")}`); data.parameters.forEach(p=>{const pv=c.parameters.find(x=>x.paramId===p.id);if(pv&&pv.value) lines.push(`**${p.name}:** ${pv.value}`);}); const ab=c.abilities.map(a=>{const ap=data.abilityParams.find(x=>x.id===a.paramId);return ap?`${ap.name}: ${a.value}`:null;}).filter(Boolean); if(ab.length) lines.push(`**能力値:** ${ab.join(" / ")}`); if(lines.length) md+=lines.join("  \n")+"\n\n"; if(c.notes) md+=`${c.notes}\n\n`; }); }
+    if(data.groups.length){ md+=`---\n\n## 集団\n\n`; data.groups.forEach(g=>{ md+=`### ${g.name||"（無名）"}\n\n`; if(g.description) md+=`${g.description}\n\n`; const m=g.relatedCharacters.map(id=>{const ch=data.characters.find(c=>c.id===id);return ch?charName(ch):null;}).filter(Boolean); if(m.length) md+=`**メンバー:** ${m.join("、")}\n\n`; if(g.notes) md+=`${g.notes}\n\n`; }); }
     if(data.locations.length){ md+=`---\n\n## 場所\n\n`; data.locations.forEach(l=>{ md+=`### ${l.name||"（無名）"}\n\n`; if(l.description) md+=`${l.description}\n\n`; if(l.notes) md+=`${l.notes}\n\n`; }); }
     if(data.terms.length){ md+=`---\n\n## 用語集\n\n`; data.terms.forEach(t=>{ md+=`### ${t.name||"（無名）"}\n\n`; if(t.description) md+=`${t.description}\n\n`; }); }
-    if(data.chapters.length){
-      md+=`---\n\n## 章構成\n\n`;
-      data.chapters.forEach((ch,idx)=>{
-        md+=`### ${ch.title||`第${idx+1}章`}\n\n`;
-        const sc=ch.relatedScenes.map(id=>data.scenes.find(s=>s.id===id)).filter(Boolean);
-        if(sc.length) md+=`**シーン:** ${sc.map(s=>s.title||"（無題）").join("、")}\n\n`;
-        if(ch.notes) md+=`${ch.notes}\n\n`;
-      });
-    }
-    if(data.scenes.length){
-      md+=`---\n\n## シーン\n\n`;
-      data.scenes.forEach(s=>{
-        md+=`### ${s.title||"（無題）"}\n\n`;
-        const info=[];
-        if(s.startDate){let d=s.startDate;if(s.endDate&&s.endDate!==s.startDate)d+=` → ${s.endDate}`;info.push(`**日時:** ${d}`);}
-        const chap=data.chapters.find(c=>c.id===s.relatedChapterId);if(chap) info.push(`**章:** ${chap.title||"（無題）"}`);
-        const loc=data.locations.find(l=>l.id===s.relatedLocationId);if(loc) info.push(`**場所:** ${loc.name}`);
-        const chars=s.relatedCharacters.map(id=>{const ch=data.characters.find(c=>c.id===id);return ch?charName(ch):null;}).filter(Boolean);
-        if(chars.length) info.push(`**登場人物:** ${chars.join("、")}`);
-        if(info.length) md+=info.join("  \n")+"\n\n";
-        if(s.notes) md+=`${s.notes}\n\n`;
-        if(s.script) md+=`\`\`\`\n${s.script}\n\`\`\`\n\n`;
-      });
-    }
-    const blob=new Blob([md],{type:"text/markdown;charset=utf-8"});
-    const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`${data.storyTitle||"story"}.md`;a.click();URL.revokeObjectURL(url);
+    if(data.chapters.length){ md+=`---\n\n## 章構成\n\n`; data.chapters.forEach((ch,idx)=>{ md+=`### ${ch.title||`第${idx+1}章`}\n\n`; const sc=ch.relatedScenes.map(id=>data.scenes.find(s=>s.id===id)).filter(Boolean); if(sc.length) md+=`**シーン:** ${sc.map(s=>s.title||"（無題）").join("、")}\n\n`; if(ch.notes) md+=`${ch.notes}\n\n`; }); }
+    if(data.scenes.length){ md+=`---\n\n## シーン\n\n`; data.scenes.forEach(s=>{ md+=`### ${s.title||"（無題）"}\n\n`; const info=[]; if(s.startDate){let d=s.startDate;if(s.endDate&&s.endDate!==s.startDate)d+=` → ${s.endDate}`;info.push(`**日時:** ${d}`);} const chap=data.chapters.find(c=>c.id===s.relatedChapterId);if(chap) info.push(`**章:** ${chap.title||"（無題）"}`); const loc=data.locations.find(l=>l.id===s.relatedLocationId);if(loc) info.push(`**場所:** ${loc.name}`); const chars=s.relatedCharacters.map(id=>{const ch=data.characters.find(c=>c.id===id);return ch?charName(ch):null;}).filter(Boolean); if(chars.length) info.push(`**登場人物:** ${chars.join("、")}`); if(info.length) md+=info.join("  \n")+"\n\n"; if(s.notes) md+=`${s.notes}\n\n`; if(s.script) md+=`\`\`\`\n${s.script}\n\`\`\`\n\n`; }); }
+    const blob=new Blob([md],{type:"text/markdown;charset=utf-8"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`${data.storyTitle||"story"}.md`;a.click();URL.revokeObjectURL(url);
   },[data]);
+  const handleImport=useCallback((e)=>{const file=e.target.files[0];if(!file) return;const reader=new FileReader();reader.onload=(ev)=>{try{const imported=JSON.parse(ev.target.result);if(window.confirm("この作品のデータを上書きして読み込みますか？")) setData(norm(imported));}catch{alert("ファイルの読み込みに失敗しました");}};reader.readAsText(file);e.target.value="";},[setData]);
 
-  const handleImport=useCallback((e)=>{const file=e.target.files[0];if(!file) return;const reader=new FileReader();reader.onload=(ev)=>{try{const imported=JSON.parse(ev.target.result);if(window.confirm("現在のデータを上書きして読み込みますか？")) setData(norm(imported));}catch{alert("ファイルの読み込みに失敗しました");}};reader.readAsText(file);e.target.value="";},[]);
-
-  const saveChar=useCallback(ch=>{
-    upd(p=>{
-      const chars=[...p.characters]; const i=chars.findIndex(c=>c.id===ch.id);
-      if(i>=0) chars[i]=ch; else chars.push(ch);
-      // Bidirectional character sync
-      const syncedChars=chars.map(other=>{
-        if(other.id===ch.id) return other;
-        const chRelToOther=ch.relatedCharacters.find(r=>r.charId===other.id);
-        const otherRelToCh=other.relatedCharacters.find(r=>r.charId===ch.id);
-        if(chRelToOther){
-          const reciprocal={charId:ch.id,callName:chRelToOther.calledName||"",calledName:chRelToOther.callName||""};
-          if(otherRelToCh) return{...other,relatedCharacters:other.relatedCharacters.map(r=>r.charId===ch.id?reciprocal:r)};
-          else return{...other,relatedCharacters:[...other.relatedCharacters,reciprocal]};
-        } else {
-          if(otherRelToCh) return{...other,relatedCharacters:other.relatedCharacters.filter(r=>r.charId!==ch.id)};
-          return other;
-        }
-      });
-      const groups=p.groups.map(g=>{const linked=ch.relatedGroups.some(r=>r.groupId===g.id),has=g.relatedCharacters.includes(ch.id);if(linked&&!has) return{...g,relatedCharacters:[...g.relatedCharacters,ch.id]};if(!linked&&has) return{...g,relatedCharacters:g.relatedCharacters.filter(id=>id!==ch.id)};return g;});
-      return{...p,characters:syncedChars,groups};
-    });
-    setModal(null);
-  },[upd]);
-
+  const saveChar=useCallback(ch=>{ upd(p=>{ const chars=[...p.characters]; const i=chars.findIndex(c=>c.id===ch.id); if(i>=0) chars[i]=ch; else chars.push(ch); const syncedChars=chars.map(other=>{ if(other.id===ch.id) return other; const a=ch.relatedCharacters.find(r=>r.charId===other.id); const b=other.relatedCharacters.find(r=>r.charId===ch.id); if(a){ const recip={charId:ch.id,callName:a.calledName||"",calledName:a.callName||""}; if(b) return{...other,relatedCharacters:other.relatedCharacters.map(r=>r.charId===ch.id?recip:r)}; return{...other,relatedCharacters:[...other.relatedCharacters,recip]}; } else { if(b) return{...other,relatedCharacters:other.relatedCharacters.filter(r=>r.charId!==ch.id)}; return other; } }); const groups=p.groups.map(g=>{const linked=ch.relatedGroups.some(r=>r.groupId===g.id),has=g.relatedCharacters.includes(ch.id);if(linked&&!has) return{...g,relatedCharacters:[...g.relatedCharacters,ch.id]};if(!linked&&has) return{...g,relatedCharacters:g.relatedCharacters.filter(id=>id!==ch.id)};return g;}); return{...p,characters:syncedChars,groups}; }); setModal(null); },[upd]);
   const saveGroup=useCallback(g=>{upd(p=>{const groups=[...p.groups];const i=groups.findIndex(x=>x.id===g.id);if(i>=0)groups[i]=g;else groups.push(g);const characters=p.characters.map(ch=>{const inGroup=g.relatedCharacters.includes(ch.id),hasGroup=ch.relatedGroups.some(r=>r.groupId===g.id);if(inGroup&&!hasGroup) return{...ch,relatedGroups:[...ch.relatedGroups,{groupId:g.id,position:""}]};if(!inGroup&&hasGroup) return{...ch,relatedGroups:ch.relatedGroups.filter(r=>r.groupId!==g.id)};return ch;});return{...p,groups,characters};});setModal(null);},[upd]);
   const saveScene=useCallback(sc=>{upd(p=>{const scenes=[...p.scenes];const i=scenes.findIndex(s=>s.id===sc.id);if(i>=0)scenes[i]=sc;else scenes.push(sc);const chapters=p.chapters.map(ch=>{const linked=sc.relatedChapterId===ch.id,has=ch.relatedScenes.includes(sc.id);if(linked&&!has) return{...ch,relatedScenes:[...ch.relatedScenes,sc.id]};if(!linked&&has) return{...ch,relatedScenes:ch.relatedScenes.filter(id=>id!==sc.id)};return ch;});return{...p,scenes,chapters};});setModal(null);},[upd]);
   const saveChapter=useCallback(ch=>{upd(p=>{const chapters=[...p.chapters];const i=chapters.findIndex(c=>c.id===ch.id);if(i>=0)chapters[i]=ch;else chapters.push(ch);const scenes=p.scenes.map(sc=>{const inChap=ch.relatedScenes.includes(sc.id);if(inChap&&sc.relatedChapterId!==ch.id) return{...sc,relatedChapterId:ch.id};if(!inChap&&sc.relatedChapterId===ch.id) return{...sc,relatedChapterId:""};return sc;});return{...p,chapters,scenes};});setModal(null);},[upd]);
 
-  if(authLoading) return <div style={{ height:"100%",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg }}><div style={{ fontSize:13,color:C.hint }}>読み込み中...</div></div>;
-  if(!session) return <LoginScreen/>;
-  if(!data) return <div style={{ height:"100%",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg }}><div style={{ fontSize:13,color:C.hint }}>データを読み込み中...</div></div>;
-
   const elements=[{key:"characters",label:"人物",icon:"person",color:"#E8916E"},{key:"groups",label:"集団",icon:"group",color:"#D9618A"},{key:"locations",label:"場所",icon:"pin",color:"#4CAF82"},{key:"scenes",label:"シーン",icon:"scene",color:"#5B9BD5"},{key:"chapters",label:"章",icon:"book",color:"#9B7DD4"},{key:"terms",label:"用語",icon:"term",color:"#C0392B"}];
   const subElements=[{key:"genders",label:"性別",icon:"gender",color:"#D9618A"},{key:"parameters",label:"パラメータ",icon:"param",color:"#7B8DA6"},{key:"abilityParams",label:"能力値チャート",icon:"radar",color:"#F59E0B"}];
-  const GridView=({items})=>(<div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:1,background:C.border }}>{items.map(it=><button key={it.key} onClick={()=>setActiveView({type:it.key})} style={{ background:C.surface,border:"none",cursor:"pointer",padding:"22px 8px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,fontFamily:"inherit" }}><div style={{ width:50,height:50,borderRadius:12,background:it.color+"18",display:"flex",alignItems:"center",justifyContent:"center" }}><Ico n={it.icon} s={23} c={it.color} sw={1.3}/></div><div style={{ fontSize:12,fontWeight:500,color:C.text }}>{it.label}</div><div style={{ fontSize:10,color:C.hint,background:C.tag,padding:"1px 6px",borderRadius:8 }}>{data[it.key]?data[it.key].length:0}</div></button>)}</div>);
+  const GridView=({items})=>(<div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:1,background:C.border }}>{items.map(it=><button key={it.key} onClick={()=>setActiveView({type:it.key})} style={{ background:C.surface,border:"none",cursor:"pointer",padding:"24px 8px",display:"flex",flexDirection:"column",alignItems:"center",gap:8,fontFamily:"inherit" }}><div style={{ width:52,height:52,borderRadius:14,background:it.color+"18",display:"flex",alignItems:"center",justifyContent:"center" }}><Ico n={it.icon} s={24} c={it.color} sw={1.3}/></div><div style={{ fontSize:12,fontWeight:500,color:C.text }}>{it.label}</div><div style={{ fontSize:10,color:C.hint,background:C.tag,padding:"1px 6px",borderRadius:8 }}>{data[it.key]?data[it.key].length:0}</div></button>)}</div>);
 
   const renderView=()=>{
     if(!activeView){
       if(activeTab==="elements") return <div style={{ flex:1,overflowY:"auto" }}><GridView items={elements}/></div>;
       if(activeTab==="subElements") return <div style={{ flex:1,overflowY:"auto" }}><GridView items={subElements}/></div>;
-      if(activeTab==="edit") return (<div style={{ flex:1,overflowY:"auto" }}>{[{key:"storySettings",label:"ストーリー設定",icon:"settings",desc:"タイトル・あらすじ・バックアップ"},{key:"chapters",label:"章と脚本",icon:"book",desc:"章の一覧・順序管理"},{key:"scenes",label:"シーンデザイナ",icon:"scene",desc:"シーンの詳細設計"}].map(it=>(<button key={it.key} onClick={()=>setActiveView({type:it.key})} style={{ width:"100%",padding:"15px 16px",display:"flex",alignItems:"center",gap:12,background:C.surface,border:"none",borderBottom:`1px solid ${C.borderL}`,cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}><Ico n={it.icon} s={18} c={C.hint}/><div><div style={{ fontSize:14,fontWeight:600,color:C.text }}>{it.label}</div><div style={{ fontSize:11,color:C.sub }}>{it.desc}</div></div><div style={{ marginLeft:"auto" }}><Ico n="chevR" s={14} c={C.hint}/></div></button>))}</div>);
+      if(activeTab==="edit") return (<div style={{ flex:1,overflowY:"auto" }}>{[{key:"storySettings",label:"ストーリー設定",icon:"settings",desc:"タイトル・あらすじ・バックアップ"},{key:"chapters",label:"章と脚本",icon:"book",desc:"章の一覧・順序管理"},{key:"scenes",label:"シーンデザイナ",icon:"scene",desc:"シーンの詳細設計"}].map(it=>(<button key={it.key} onClick={()=>setActiveView({type:it.key})} style={{ width:"100%",padding:"16px",display:"flex",alignItems:"center",gap:12,background:C.surface,border:"none",borderBottom:`1px solid ${C.borderL}`,cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}><Ico n={it.icon} s={18} c={C.hint}/><div><div style={{ fontSize:14,fontWeight:600,color:C.text }}>{it.label}</div><div style={{ fontSize:11,color:C.sub }}>{it.desc}</div></div><div style={{ marginLeft:"auto" }}><Ico n="chevR" s={14} c={C.hint}/></div></button>))}</div>);
       if(activeTab==="view") return <TimelineView data={data}/>;
       return null;
     }
     switch(activeView.type){
-      case "storySettings": return (<div style={{ flex:1,overflowY:"auto",padding:16 }}><Inp label="ストーリータイトル" value={data.storyTitle} onChange={v=>upd(p=>({...p,storyTitle:v}))} placeholder="タイトルを入力..."/><Inp label="あらすじ" value={data.storySynopsis} onChange={v=>upd(p=>({...p,storySynopsis:v}))} rows={5} placeholder="ストーリーの概要..."/><Divider/><Field label="バックアップ"><div style={{ display:"flex",flexDirection:"column",gap:8 }}><Btn icon="download" onClick={exportData}>JSONでバックアップ</Btn><div><Btn icon="upload" onClick={()=>importRef.current.click()}>JSONを復元</Btn><input ref={importRef} type="file" accept=".json" style={{ display:"none" }} onChange={handleImport}/></div><div style={{ fontSize:11,color:C.hint,lineHeight:1.6 }}>データはSupabaseに自動保存されます。JSONバックアップは念のための保険です。</div></div></Field><Divider/><Field label="エクスポート"><div style={{ display:"flex",flexDirection:"column",gap:8 }}><Btn icon="download" onClick={exportMarkdown}>Markdownで書き出し（.md）</Btn><div style={{ fontSize:11,color:C.hint,lineHeight:1.6 }}>登場人物・シーン・章・用語など全情報を書き出します。Notion・Obsidian・テキストエディタで開けます。</div></div></Field></div>);
+      case "storySettings": return (<div style={{ flex:1,overflowY:"auto",padding:16 }}><Inp label="ストーリータイトル" value={data.storyTitle} onChange={v=>upd(p=>({...p,storyTitle:v}))} placeholder="タイトルを入力..."/><Inp label="あらすじ" value={data.storySynopsis} onChange={v=>upd(p=>({...p,storySynopsis:v}))} rows={5} placeholder="ストーリーの概要..."/><Divider/><Field label="バックアップ"><div style={{ display:"flex",flexDirection:"column",gap:8 }}><Btn icon="download" onClick={exportData}>JSONでバックアップ</Btn><div><Btn icon="upload" onClick={()=>importRef.current.click()}>JSONを復元</Btn><input ref={importRef} type="file" accept=".json" style={{ display:"none" }} onChange={handleImport}/></div></div></Field><Divider/><Field label="エクスポート"><div style={{ display:"flex",flexDirection:"column",gap:8 }}><Btn icon="download" onClick={exportMarkdown}>Markdownで書き出し（.md）</Btn><div style={{ fontSize:11,color:C.hint,lineHeight:1.6 }}>登場人物・シーン・章・用語など全情報を書き出します。</div></div></Field></div>);
       case "characters": return <EntityList title="人物" icon="person" iconColor="#E8916E" items={data.characters} onAdd={()=>setModal({type:"character"})} onEdit={it=>setModal({type:"character",item:it})} onDelete={id=>del("characters",id)} renderName={charName} renderImage={c=>c.image||null} renderSubtitle={c=>{const g=data.genders.find(x=>x.id===c.genderId);return[g?g.name:null,c.birthday?`${c.birthday}生`:null].filter(Boolean).join(" · ")||null;}} renderTags={c=>c.relatedGroups.slice(0,2).map(r=>{const g=data.groups.find(x=>x.id===r.groupId);return g?{label:r.position?`${g.name}（${r.position}）`:g.name}:null;}).filter(Boolean)} onMoveUp={i=>moveEntity("characters",i,-1)} onMoveDown={i=>moveEntity("characters",i,1)}/>;
       case "groups": return <EntityList title="集団" icon="group" iconColor="#D9618A" items={data.groups} onAdd={()=>setModal({type:"group"})} onEdit={it=>setModal({type:"group",item:it})} onDelete={id=>del("groups",id)} renderName={g=>g.name||"（無名）"} renderSubtitle={g=>`${g.relatedCharacters.length}名が所属`} onMoveUp={i=>moveEntity("groups",i,-1)} onMoveDown={i=>moveEntity("groups",i,1)}/>;
       case "locations": return <EntityList title="場所" icon="pin" iconColor="#4CAF82" items={data.locations} onAdd={()=>setModal({type:"location"})} onEdit={it=>setModal({type:"location",item:it})} onDelete={id=>del("locations",id)} renderName={l=>l.name||"（無名）"} renderSubtitle={l=>l.description?l.description.slice(0,36):null} onMoveUp={i=>moveEntity("locations",i,-1)} onMoveDown={i=>moveEntity("locations",i,1)}/>;
-      case "scenes": return <EntityList title="シーン" icon="scene" iconColor="#5B9BD5" items={data.scenes} onAdd={()=>setModal({type:"scene"})} onEdit={it=>setModal({type:"scene",item:it})} onDelete={id=>del("scenes",id)} renderName={s=>s.title||"（無題）"} renderSubtitle={s=>{const ch=data.chapters.find(c=>c.id===s.relatedChapterId);return[s.startDate,ch?ch.title:null].filter(Boolean).join(" · ")||null;}} onMoveUp={i=>moveEntity("scenes",i,-1)} onMoveDown={i=>moveEntity("scenes",i,1)}/>;
+      case "scenes": return <EntityList title="シーン" icon="scene" iconColor="#5B9BD5" items={data.scenes} onAdd={()=>setModal({type:"scene"})} onEdit={it=>setModal({type:"scene",item:it})} onDelete={id=>del("scenes",id)} renderName={s=>s.title||"（無題）"} renderSubtitle={s=>{const ch=data.chapters.find(c=>c.id===s.relatedChapterId);return[s.startDate,ch?ch.title:null,s.script?`${countChars(s.script)}字`:null].filter(Boolean).join(" · ")||null;}} onMoveUp={i=>moveEntity("scenes",i,-1)} onMoveDown={i=>moveEntity("scenes",i,1)}/>;
       case "chapters": return <EntityList title="章" icon="book" iconColor="#9B7DD4" items={data.chapters} onAdd={()=>setModal({type:"chapter"})} onEdit={it=>setModal({type:"chapter",item:it})} onDelete={id=>del("chapters",id)} renderName={c=>c.title||"（無題）"} renderSubtitle={c=>`${c.relatedScenes.length}シーン`} onMoveUp={i=>moveEntity("chapters",i,-1)} onMoveDown={i=>moveEntity("chapters",i,1)}/>;
       case "terms": return <EntityList title="用語" icon="term" iconColor="#C0392B" items={data.terms} onAdd={()=>setModal({type:"term"})} onEdit={it=>setModal({type:"term",item:it})} onDelete={id=>del("terms",id)} renderName={t=>t.name||"（無名）"} renderSubtitle={t=>t.description?t.description.slice(0,36):null} onMoveUp={i=>moveEntity("terms",i,-1)} onMoveDown={i=>moveEntity("terms",i,1)}/>;
       case "genders": return <EntityList title="性別" icon="gender" iconColor="#D9618A" items={data.genders} onAdd={()=>setModal({type:"gender"})} onEdit={it=>setModal({type:"gender",item:it})} onDelete={id=>del("genders",id)} renderName={g=>g.name||"（無名）"} renderSubtitle={g=>g.color} onMoveUp={i=>moveEntity("genders",i,-1)} onMoveDown={i=>moveEntity("genders",i,1)}/>;
@@ -370,10 +284,8 @@ function App() {
       default: return null;
     }
   };
-
   const renderModal=()=>{
-    if(!modal) return null;
-    const {type,item}=modal;
+    if(!modal) return null; const {type,item}=modal;
     const km={character:"characters",scene:"scenes",chapter:"chapters",group:"groups",location:"locations",term:"terms",gender:"genders",parameter:"parameters",abilityParam:"abilityParams"};
     const D=item?()=>del(km[type],item.id):null;
     if(type==="character") return <CharacterEdit char={item} data={data} onSave={saveChar} onClose={()=>setModal(null)} onDelete={D}/>;
@@ -387,20 +299,236 @@ function App() {
     if(type==="abilityParam") return <SimpleEdit item={item} entityName="能力項目" data={data} onSave={p=>{upsert("abilityParams",p);setModal(null);}} onClose={()=>setModal(null)} onDelete={D} fields={[{key:"name",label:"項目名",type:"text",placeholder:"例：攻撃力、魔力、素早さ..."}]}/>;
     return null;
   };
-
   const navTabs=[{key:"elements",label:"要素",icon:"person"},{key:"subElements",label:"副要素",icon:"param"},{key:"edit",label:"編集",icon:"edit"},{key:"view",label:"ビュー",icon:"timeline"}];
   return (
-    <div style={{ height:"100%",display:"flex",flexDirection:"column",background:C.bg,maxWidth:480,margin:"0 auto" }}>
-      <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 16px",background:C.surface,borderBottom:`1px solid ${C.border}`,flexShrink:0 }}>
-        {activeView?<button onClick={()=>setActiveView(null)} style={{ background:"none",border:"none",cursor:"pointer",padding:"3px 6px",display:"flex",alignItems:"center",gap:3 }}><Ico n="back" s={15} c={C.accent}/><span style={{ fontSize:12,color:C.accent }}>戻る</span></button>:<button onClick={()=>db.auth.signOut()} style={{ background:"none",border:"none",cursor:"pointer",padding:"3px 6px",display:"flex",alignItems:"center",gap:3,opacity:0.4 }}><Ico n="logout" s={15} c={C.text}/></button>}
+    <div style={{ height:"100%",display:"flex",flexDirection:"column" }}>
+      <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 12px",background:C.surface,borderBottom:`1px solid ${C.border}`,flexShrink:0 }}>
+        {activeView?<button onClick={()=>setActiveView(null)} style={{ background:"none",border:"none",cursor:"pointer",padding:"6px 8px",display:"flex",alignItems:"center",gap:3 }}><Ico n="back" s={16} c={C.accent}/><span style={{ fontSize:12,color:C.accent }}>戻る</span></button>:<button onClick={onBack} style={{ background:"none",border:"none",cursor:"pointer",padding:"6px 8px",display:"flex",alignItems:"center",gap:3 }}><Ico n="home" s={16} c={C.accent}/><span style={{ fontSize:12,color:C.accent }}>一覧</span></button>}
         <div style={{ fontSize:14,fontWeight:700,color:C.text,letterSpacing:-0.3,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{data.storyTitle||"ストーリー"}</div>
-        <div style={{ width:52,display:"flex",justifyContent:"flex-end" }}><span style={{ fontSize:10,color:C.hint,opacity:saveStatus==="saving"?1:0.6 }}>{saveStatus==="saving"?"保存中...":"✓ 保存済み"}</span></div>
+        <div style={{ width:60,display:"flex",justifyContent:"flex-end" }}><span style={{ fontSize:10,color:C.hint,opacity:saveStatus==="saving"?1:0.6 }}>{saveStatus==="saving"?"保存中...":"✓ 保存済み"}</span></div>
       </div>
       <div style={{ flex:1,overflow:"hidden",display:"flex",flexDirection:"column" }}>{renderView()}</div>
       <div style={{ display:"flex",borderTop:`1px solid ${C.border}`,background:C.surface,flexShrink:0,paddingBottom:"env(safe-area-inset-bottom, 0px)" }}>
-        {navTabs.map(t=>{const active=activeTab===t.key&&!activeView;return <button key={t.key} onClick={()=>{setActiveTab(t.key);setActiveView(null);}} style={{ flex:1,padding:"9px 4px 7px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit" }}><Ico n={t.icon} s={21} c={active?C.accent:C.hint} sw={active?2:1.5}/><span style={{ fontSize:10,fontWeight:active?600:400,color:active?C.accent:C.hint }}>{t.label}</span></button>;})}
+        {navTabs.map(t=>{const active=activeTab===t.key&&!activeView;return <button key={t.key} onClick={()=>{setActiveTab(t.key);setActiveView(null);}} style={{ flex:1,padding:"10px 4px 8px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit" }}><Ico n={t.icon} s={21} c={active?C.accent:C.hint} sw={active?2:1.5}/><span style={{ fontSize:10,fontWeight:active?600:400,color:active?C.accent:C.hint }}>{t.label}</span></button>;})}
       </div>
       {renderModal()}
+    </div>
+  );
+}
+
+// ===================== STORY LIST (HOME) =====================
+function StoryList({ stories, onOpen, onCreate, onDuplicate, onDelete, onRename, onMove, onOpenSettings, onOpenIdeas }) {
+  const [menuFor,setMenuFor]=useState(null);
+  const [renameFor,setRenameFor]=useState(null);
+  const [renameVal,setRenameVal]=useState("");
+  const [q,setQ]=useState("");
+  const filtered=stories.filter(s=>(s.title||"").includes(q));
+  return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column" }}>
+      <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px 12px",background:C.surface,borderBottom:`1px solid ${C.border}`,flexShrink:0 }}>
+        <span style={{ fontSize:17,fontWeight:700,color:C.text }}>作品一覧</span>
+        <div style={{ display:"flex",gap:4 }}>
+          <button onClick={onOpenIdeas} style={{ background:"none",border:"none",cursor:"pointer",padding:8,display:"flex" }}><Ico n="bulb" s={19} c={C.sub}/></button>
+          <button onClick={onOpenSettings} style={{ background:"none",border:"none",cursor:"pointer",padding:8,display:"flex" }}><Ico n="settings" s={19} c={C.sub}/></button>
+        </div>
+      </div>
+      {stories.length>3&&<div style={{ padding:"10px 16px 4px",background:C.surface }}><input value={q} onChange={e=>setQ(e.target.value)} placeholder="作品を検索..." style={{ ...IS(),padding:"9px 12px",background:C.bg }}/></div>}
+      <div style={{ flex:1,overflowY:"auto",padding:"12px 12px 90px" }}>
+        {stories.length===0?<div style={{ textAlign:"center",padding:"60px 20px",color:C.hint }}><div style={{ opacity:0.25,marginBottom:12 }}><Ico n="book" s={44} c={C.sub}/></div><div style={{ fontSize:13 }}>まだ作品がありません</div><div style={{ fontSize:12,marginTop:4 }}>下の「＋新しい作品」から始めましょう</div></div>:
+        filtered.map((st,i)=>{ const d=st._data; const upDisabled=q||i===0; const downDisabled=q||i===filtered.length-1; return (
+          <div key={st.id} style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"14px 14px 12px",marginBottom:10,position:"relative" }}>
+            <div onClick={()=>onOpen(st.id)} style={{ cursor:"pointer" }}>
+              <div style={{ fontSize:15,fontWeight:700,color:C.text,marginBottom:4,paddingRight:28 }}>{st.title||"（無題）"}</div>
+              {d&&d.storySynopsis&&<div style={{ fontSize:12,color:C.sub,lineHeight:1.5,marginBottom:8,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden" }}>{d.storySynopsis.slice(0,60)}</div>}
+              <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
+                {d&&<><span style={{ fontSize:11,color:C.hint }}>👤 {d.characters.length}</span><span style={{ fontSize:11,color:C.hint }}>🎬 {d.scenes.length}</span><span style={{ fontSize:11,color:C.hint }}>✍️ {storyChars(d).toLocaleString()}字</span></>}
+                {st.updated_at&&<span style={{ fontSize:11,color:C.hint,marginLeft:"auto" }}>{new Date(st.updated_at).toLocaleDateString("ja-JP",{month:"numeric",day:"numeric"})}</span>}
+              </div>
+            </div>
+            <button onClick={()=>setMenuFor(menuFor===st.id?null:st.id)} style={{ position:"absolute",top:10,right:8,background:"none",border:"none",cursor:"pointer",padding:6,display:"flex" }}><Ico n="dots" s={16} c={C.hint}/></button>
+            {!q&&<div style={{ position:"absolute",top:12,right:34,display:"flex",flexDirection:"column",gap:0 }}><button onClick={()=>onMove(i,-1)} disabled={i===0} style={{ border:"none",background:"transparent",cursor:i===0?"default":"pointer",padding:"1px 2px",opacity:i===0?0.15:0.4 }}><Ico n="chevU" s={12} c={C.text}/></button><button onClick={()=>onMove(i,1)} disabled={i===filtered.length-1} style={{ border:"none",background:"transparent",cursor:i===filtered.length-1?"default":"pointer",padding:"1px 2px",opacity:i===filtered.length-1?0.15:0.4 }}><Ico n="chevD" s={12} c={C.text}/></button></div>}
+            {menuFor===st.id&&(<div style={{ position:"absolute",top:36,right:8,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",zIndex:10,overflow:"hidden",minWidth:130 }}>
+              <button onClick={()=>{setRenameFor(st.id);setRenameVal(st.title);setMenuFor(null);}} style={{ display:"flex",alignItems:"center",gap:8,width:"100%",padding:"11px 14px",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13,color:C.text }}><Ico n="edit" s={14} c={C.sub}/>名前変更</button>
+              <button onClick={()=>{onDuplicate(st.id);setMenuFor(null);}} style={{ display:"flex",alignItems:"center",gap:8,width:"100%",padding:"11px 14px",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13,color:C.text,borderTop:`1px solid ${C.borderL}` }}><Ico n="copy" s={14} c={C.sub}/>複製</button>
+              <button onClick={()=>{if(window.confirm(`「${st.title}」を削除しますか？この操作は取り消せません。`)) onDelete(st.id);setMenuFor(null);}} style={{ display:"flex",alignItems:"center",gap:8,width:"100%",padding:"11px 14px",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13,color:C.danger,borderTop:`1px solid ${C.borderL}` }}><Ico n="trash" s={14} c={C.danger}/>削除</button>
+            </div>)}
+          </div>
+        );})}
+      </div>
+      <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"12px 16px calc(16px + env(safe-area-inset-bottom,0px))",background:C.surface,borderTop:`1px solid ${C.border}`,maxWidth:480,margin:"0 auto" }}>
+        <Btn variant="primary" icon="plus" full onClick={onCreate}>新しい作品</Btn>
+      </div>
+      {renameFor&&(<Modal title="作品名の変更" onClose={()=>setRenameFor(null)} footer={<><div style={{ flex:1 }}/><Btn variant="primary" onClick={()=>{onRename(renameFor,renameVal);setRenameFor(null);}}>変更</Btn></>}><Inp label="作品名" value={renameVal} onChange={setRenameVal} placeholder="作品名..."/></Modal>)}
+      {menuFor&&<div onClick={()=>setMenuFor(null)} style={{ position:"fixed",inset:0,zIndex:5 }}/>}
+    </div>
+  );
+}
+
+// ===================== SETTINGS =====================
+function SettingsScreen({ onBack, theme, dark, onTheme, onDark, email, onLogout }) {
+  return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column" }}>
+      <div style={{ display:"flex",alignItems:"center",gap:8,padding:"11px 12px",background:C.surface,borderBottom:`1px solid ${C.border}`,flexShrink:0 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",cursor:"pointer",padding:"6px 8px",display:"flex",alignItems:"center",gap:3 }}><Ico n="chevL" s={18} c={C.accent}/><span style={{ fontSize:12,color:C.accent }}>戻る</span></button>
+        <span style={{ fontSize:15,fontWeight:700,color:C.text }}>設定</span>
+      </div>
+      <div style={{ flex:1,overflowY:"auto",padding:16 }}>
+        <Field label="テーマ">
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+            {Object.entries(THEMES).map(([key,t])=>(
+              <button key={key} onClick={()=>onTheme(key)} style={{ display:"flex",alignItems:"center",gap:8,padding:"12px",borderRadius:12,border:`1.5px solid ${theme===key?C.accent:C.border}`,background:theme===key?C.accent+"12":C.surface,cursor:"pointer",fontFamily:"inherit" }}>
+                <div style={{ width:22,height:22,borderRadius:7,background:t.accentColor,flexShrink:0,border:`1px solid ${C.border}` }}/>
+                <span style={{ fontSize:13,fontWeight:theme===key?600:400,color:C.text }}>{t.label}</span>
+                {theme===key&&<div style={{ marginLeft:"auto" }}><Ico n="check" s={15} c={C.accent}/></div>}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Divider/>
+        <Field label="表示モード">
+          <button onClick={()=>onDark(!dark)} style={{ display:"flex",alignItems:"center",gap:10,width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,background:C.surface,cursor:"pointer",fontFamily:"inherit" }}>
+            <Ico n={dark?"moon":"sun"} s={18} c={C.accent}/>
+            <span style={{ fontSize:13,color:C.text }}>{dark?"ダークモード":"ライトモード"}</span>
+            <div style={{ marginLeft:"auto",width:42,height:24,borderRadius:12,background:dark?C.accent:C.border,position:"relative",transition:"background 0.2s" }}>
+              <div style={{ position:"absolute",top:2,left:dark?20:2,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }}/>
+            </div>
+          </button>
+        </Field>
+        <Divider/>
+        <Field label="アカウント">
+          <div style={{ fontSize:12,color:C.sub,padding:"4px 2px 12px" }}>{email}</div>
+          <Btn variant="default" icon="logout" full onClick={onLogout}>ログアウト</Btn>
+        </Field>
+      </div>
+    </div>
+  );
+}
+
+// ===================== IDEAS BOX =====================
+function IdeasScreen({ onBack, ideas, onAdd, onDelete }) {
+  const [text,setText]=useState("");
+  return (
+    <div style={{ height:"100%",display:"flex",flexDirection:"column" }}>
+      <div style={{ display:"flex",alignItems:"center",gap:8,padding:"11px 12px",background:C.surface,borderBottom:`1px solid ${C.border}`,flexShrink:0 }}>
+        <button onClick={onBack} style={{ background:"none",border:"none",cursor:"pointer",padding:"6px 8px",display:"flex",alignItems:"center",gap:3 }}><Ico n="chevL" s={18} c={C.accent}/><span style={{ fontSize:12,color:C.accent }}>戻る</span></button>
+        <span style={{ fontSize:15,fontWeight:700,color:C.text }}>アイデアボックス</span>
+      </div>
+      <div style={{ padding:"12px 16px",background:C.surface,borderBottom:`1px solid ${C.borderL}`,display:"flex",gap:8 }}>
+        <input value={text} onChange={e=>setText(e.target.value)} placeholder="思いついたことを書き留める..." style={{ ...IS(),background:C.bg }} onKeyDown={e=>{if(e.key==="Enter"&&text.trim()){onAdd(text.trim());setText("");}}}/>
+        <button onClick={()=>{if(text.trim()){onAdd(text.trim());setText("");}}} style={{ flexShrink:0,width:44,borderRadius:10,border:"none",background:C.accent,color:C.accentFg,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}><Ico n="plus" s={18} c={C.accentFg}/></button>
+      </div>
+      <div style={{ flex:1,overflowY:"auto",padding:"12px 12px 20px" }}>
+        {ideas.length===0?<div style={{ textAlign:"center",padding:"50px 20px",color:C.hint }}><div style={{ opacity:0.25,marginBottom:10 }}><Ico n="bulb" s={40} c={C.sub}/></div><div style={{ fontSize:13 }}>アイデアはまだありません</div><div style={{ fontSize:12,marginTop:4 }}>全作品共通のメモ帳です</div></div>:
+        [...ideas].reverse().map(idea=>(
+          <div key={idea.id} style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",marginBottom:8,display:"flex",gap:10,alignItems:"flex-start" }}>
+            <div style={{ flex:1,fontSize:13,color:C.text,lineHeight:1.6,whiteSpace:"pre-wrap" }}>{idea.text}<div style={{ fontSize:10,color:C.hint,marginTop:5 }}>{new Date(idea.createdAt).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})}</div></div>
+            <button onClick={()=>onDelete(idea.id)} style={{ border:"none",background:"transparent",cursor:"pointer",padding:4,opacity:0.35,flexShrink:0 }}><Ico n="trash" s={14} c={C.text}/></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ===================== ROOT APP =====================
+function App() {
+  const [session,setSession]=useState(null);
+  const [authLoading,setAuthLoading]=useState(true);
+  const [stories,setStories]=useState(null);        // list [{id,title,sort_order,updated_at,_data}]
+  const [openId,setOpenId]=useState(null);          // currently open story id
+  const [openData,setOpenData]=useState(null);      // norm data of open story
+  const [saveStatus,setSaveStatus]=useState("saved");
+  const [screen,setScreen]=useState("list");        // list | editor | settings | ideas
+  const [ideas,setIdeas]=useState([]);
+  const [theme,setTheme]=useState(localStorage.getItem("sc_theme")||"mono");
+  const [dark,setDark]=useState(localStorage.getItem("sc_dark")==="1");
+  const [, forceRender]=useState(0);
+
+  applyTheme(theme,dark);
+
+  // auth
+  useEffect(()=>{ db.auth.getSession().then(({data:{session}})=>{setSession(session);setAuthLoading(false);}); const {data:{subscription}}=db.auth.onAuthStateChange((_e,s)=>setSession(s)); return ()=>subscription.unsubscribe(); },[]);
+
+  // load stories + meta + migration
+  useEffect(()=>{
+    if(!session){ setStories(null); setOpenId(null); setOpenData(null); setIdeas([]); return; }
+    (async()=>{
+      // meta
+      let { data:meta } = await db.from("user_meta").select("*").eq("user_id",session.user.id).maybeSingle();
+      if(!meta){ await db.from("user_meta").insert({user_id:session.user.id,ideas:[],settings:{}}); meta={ideas:[],settings:{}}; }
+      setIdeas(meta.ideas||[]);
+      if(meta.settings){ if(meta.settings.theme){ setTheme(meta.settings.theme); localStorage.setItem("sc_theme",meta.settings.theme);} if(typeof meta.settings.darkMode==="boolean"){ setDark(meta.settings.darkMode); localStorage.setItem("sc_dark",meta.settings.darkMode?"1":"0"); } }
+      // stories
+      let { data:rows } = await db.from("stories").select("id,title,data,sort_order,updated_at").eq("user_id",session.user.id).order("sort_order",{ascending:true});
+      // migration from legacy story_data
+      if((!rows||rows.length===0)){
+        const { data:legacy } = await db.from("story_data").select("data").eq("user_id",session.user.id).limit(1);
+        if(legacy&&legacy.length>0&&legacy[0].data){
+          const d=norm(legacy[0].data);
+          const { data:ins } = await db.from("stories").insert({user_id:session.user.id,title:d.storyTitle||"新しいストーリー",data:d,sort_order:0}).select("id,title,data,sort_order,updated_at").single();
+          rows=ins?[ins]:[];
+        }
+      }
+      setStories((rows||[]).map(r=>({ id:r.id,title:r.title,sort_order:r.sort_order,updated_at:r.updated_at,_data:norm(r.data) })));
+    })();
+  },[session]);
+
+  // autosave open story
+  useEffect(()=>{
+    if(!openData||!openId||!session) return;
+    setSaveStatus("saving");
+    const t=setTimeout(async()=>{
+      await db.from("stories").update({ data:openData, title:openData.storyTitle||"新しいストーリー", updated_at:new Date().toISOString() }).eq("id",openId);
+      setStories(prev=>prev?prev.map(s=>s.id===openId?{...s,title:openData.storyTitle,_data:openData,updated_at:new Date().toISOString()}:s):prev);
+      setSaveStatus("saved");
+    },1500);
+    return ()=>clearTimeout(t);
+  },[openData]);
+
+  const saveMeta=useCallback(async(patch)=>{ if(!session) return; await db.from("user_meta").update({...patch,updated_at:new Date().toISOString()}).eq("user_id",session.user.id); },[session]);
+
+  const changeTheme=(k)=>{ setTheme(k); localStorage.setItem("sc_theme",k); applyTheme(k,dark); forceRender(x=>x+1); saveMeta({settings:{theme:k,darkMode:dark}}); };
+  const changeDark=(v)=>{ setDark(v); localStorage.setItem("sc_dark",v?"1":"0"); applyTheme(theme,v); forceRender(x=>x+1); saveMeta({settings:{theme,darkMode:v}}); };
+
+  const openStory=(id)=>{ const st=stories.find(s=>s.id===id); if(!st) return; setOpenId(id); setOpenData(st._data); setScreen("editor"); };
+  const backToList=()=>{ setScreen("list"); setOpenId(null); setOpenData(null); };
+
+  const createStory=async()=>{
+    const d=norm({}); d.storyTitle="新しい作品";
+    const maxOrder=stories.reduce((m,s)=>Math.max(m,s.sort_order),-1);
+    const { data:ins } = await db.from("stories").insert({user_id:session.user.id,title:d.storyTitle,data:d,sort_order:maxOrder+1}).select("id,title,data,sort_order,updated_at").single();
+    if(ins){ const st={id:ins.id,title:ins.title,sort_order:ins.sort_order,updated_at:ins.updated_at,_data:norm(ins.data)}; setStories([...stories,st]); setOpenId(ins.id); setOpenData(st._data); setScreen("editor"); }
+  };
+  const duplicateStory=async(id)=>{
+    const st=stories.find(s=>s.id===id); if(!st) return;
+    const d={...st._data,storyTitle:`${st.title}のコピー`};
+    const maxOrder=stories.reduce((m,s)=>Math.max(m,s.sort_order),-1);
+    const { data:ins } = await db.from("stories").insert({user_id:session.user.id,title:d.storyTitle,data:d,sort_order:maxOrder+1}).select("id,title,data,sort_order,updated_at").single();
+    if(ins) setStories([...stories,{id:ins.id,title:ins.title,sort_order:ins.sort_order,updated_at:ins.updated_at,_data:norm(ins.data)}]);
+  };
+  const deleteStory=async(id)=>{ await db.from("stories").delete().eq("id",id); setStories(stories.filter(s=>s.id!==id)); };
+  const renameStory=async(id,title)=>{ const t=title.trim()||"（無題）"; await db.from("stories").update({title:t}).eq("id",id); setStories(stories.map(s=>s.id===id?{...s,title:t,_data:{...s._data,storyTitle:t}}:s)); };
+  const moveStory=async(idx,dir)=>{
+    const arr=[...stories]; const ni=idx+dir; if(ni<0||ni>=arr.length) return;
+    [arr[idx],arr[ni]]=[arr[ni],arr[idx]];
+    const reordered=arr.map((s,i)=>({...s,sort_order:i}));
+    setStories(reordered);
+    for(const s of reordered){ await db.from("stories").update({sort_order:s.sort_order}).eq("id",s.id); }
+  };
+
+  const addIdea=async(text)=>{ const next=[...ideas,{id:uid(),text,tags:[],createdAt:new Date().toISOString(),linkedStoryId:null}]; setIdeas(next); await saveMeta({ideas:next}); };
+  const deleteIdea=async(id)=>{ const next=ideas.filter(i=>i.id!==id); setIdeas(next); await saveMeta({ideas:next}); };
+
+  if(authLoading) return <div style={{ height:"100%",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg }}><div style={{ fontSize:13,color:C.hint }}>読み込み中...</div></div>;
+  if(!session) return <div style={{ height:"100%",maxWidth:480,margin:"0 auto",background:C.bg }}><LoginScreen/></div>;
+  if(stories===null) return <div style={{ height:"100%",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg }}><div style={{ fontSize:13,color:C.hint }}>データを読み込み中...</div></div>;
+
+  return (
+    <div style={{ height:"100%",maxWidth:480,margin:"0 auto",background:C.bg,position:"relative",overflow:"hidden" }}>
+      {screen==="list"&&<StoryList stories={stories} onOpen={openStory} onCreate={createStory} onDuplicate={duplicateStory} onDelete={deleteStory} onRename={renameStory} onMove={moveStory} onOpenSettings={()=>setScreen("settings")} onOpenIdeas={()=>setScreen("ideas")}/>}
+      {screen==="editor"&&openData&&<StoryEditor data={openData} setData={setOpenData} onBack={backToList} saveStatus={saveStatus}/>}
+      {screen==="settings"&&<SettingsScreen onBack={()=>setScreen("list")} theme={theme} dark={dark} onTheme={changeTheme} onDark={changeDark} email={session.user.email} onLogout={()=>db.auth.signOut()}/>}
+      {screen==="ideas"&&<IdeasScreen onBack={()=>setScreen("list")} ideas={ideas} onAdd={addIdea} onDelete={deleteIdea}/>}
     </div>
   );
 }
