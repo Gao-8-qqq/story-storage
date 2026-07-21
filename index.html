@@ -42,13 +42,13 @@ const mkSummary = (d) => ({ synopsis:(d.storySynopsis||"").slice(0,80), chars:(d
 
 const norm = (d) => {
   if (!d) d = {};
-  const mkChar = c => ({ image:"",imageColor:"#8EA3C3",genderId:"",birthday:"",deathDate:"",notes:"",lastName:"",firstName:"",lastNameFuri:"",firstNameFuri:"",nameOrder:"last_first",relatedCharacters:[],relatedGroups:[],relatedTerms:[],parameters:[],abilities:[], ...c,
+  const mkChar = c => ({ image:"",imageColor:"#8EA3C3",genderId:"",birthday:"",deathDate:"",notes:"",lastName:"",firstName:"",lastNameFuri:"",firstNameFuri:"",nameOrder:"last_first",relatedCharacters:[],relatedGroups:[],relatedTerms:[],parameters:[],abilities:[],abilityStages:null, ...c,
     relatedCharacters:(c.relatedCharacters||[]).map(r=>r&&typeof r==="object"&&r.charId?r:{charId:r&&r.charId?r.charId:r,callName:(r&&r.callName)||"",calledName:(r&&r.calledName)||""}),
     relatedGroups:(c.relatedGroups||[]).map(r=>r&&typeof r==="object"&&r.groupId?r:{groupId:r&&r.groupId?r.groupId:r,position:(r&&r.position)||""}),
-    abilities:c.abilities||[],
   });
+  const migChar = c => { const ch=mkChar(c); if(!ch.abilityStages||!Array.isArray(ch.abilityStages)||ch.abilityStages.length===0){ ch.abilityStages=[{id:uid(),name:"現在",abilities:ch.abilities||[]}]; } return ch; };
   return { storyTitle:d.storyTitle||"新しいストーリー",storySynopsis:d.storySynopsis||"",
-    characters:(d.characters||[]).map(mkChar),
+    characters:(d.characters||[]).map(migChar),
     groups:(d.groups||[]).map(g=>({name:"",description:"",notes:"",relatedCharacters:[],...g,relatedCharacters:(g.relatedCharacters||[]).map(r=>typeof r==="object"?(r.charId||r.id||""):r).filter(Boolean)})),
     locations:d.locations||[],
     scenes:(d.scenes||[]).map(s=>({title:"",startDate:"",endDate:"",relatedChapterId:"",relatedLocationId:"",script:"",notes:"",relatedCharacters:[],relatedTerms:[],...s})),
@@ -124,6 +124,14 @@ const Tag = ({ label, color, onRemove }) => (<span style={{ display:"inline-flex
 const Lbl = ({ children }) => <div style={{ fontSize:11,color:C.sub,marginBottom:4,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.4px" }}>{children}</div>;
 const Field = ({ label, children, mb=14 }) => <div style={{ marginBottom:mb,minWidth:0,maxWidth:"100%" }}>{label&&<Lbl>{label}</Lbl>}{children}</div>;
 const IS = () => ({ width:"100%",padding:"10px 12px",border:`1px solid ${C.border}`,borderRadius:10,color:C.text,background:C.surface,boxSizing:"border-box",fontFamily:"inherit",minWidth:0,maxWidth:"100%" });
+const DateInp = ({ label, value, onChange }) => (
+  <Field label={label}>
+    <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+      <input type="date" value={value} onChange={e=>onChange(e.target.value)} style={{ ...IS(), WebkitAppearance:"none", appearance:"none", minWidth:0, flex:1 }}/>
+      {value&&<button onClick={()=>onChange("")} style={{ flexShrink:0,width:38,height:40,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}><Ico n="x" s={14} c={C.sub}/></button>}
+    </div>
+  </Field>
+);
 const Inp = ({ label, value, onChange, type="text", placeholder, rows }) => <Field label={label}>{rows?<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} style={{ ...IS(),resize:"vertical" }}/>:<input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{ ...IS(), WebkitAppearance:"none", appearance:"none", minWidth:0 }}/>}</Field>;
 const Sel = ({ label, value, onChange, options }) => <Field label={label}><select value={value} onChange={e=>onChange(e.target.value)} style={{ ...IS(),cursor:"pointer" }}><option value="">-- 未選択 --</option>{options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></Field>;
 const Btn = ({ children, onClick, variant="default", small, icon, full }) => { const vs={default:{bg:C.surface,cl:C.text,br:`1px solid ${C.border}`},primary:{bg:C.accent,cl:C.accentFg,br:"none"},danger:{bg:C.danger,cl:"#fff",br:"none"},ghost:{bg:"transparent",cl:C.sub,br:"none"}}; const v=vs[variant]||vs.default; return <button onClick={onClick} style={{ display:"inline-flex",alignItems:"center",gap:5,padding:small?"7px 12px":"11px 16px",borderRadius:10,border:v.br,background:v.bg,color:v.cl,fontSize:small?12:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",width:full?"100%":"auto",justifyContent:full?"center":"flex-start",minHeight:small?0:44 }}>{icon&&<Ico n={icon} s={small?13:15} c={v.cl}/>}{children}</button>; };
@@ -180,21 +188,29 @@ const LoginScreen = () => {
 };
 
 // ===================== EDIT MODALS (unchanged logic) =====================
-const CharacterEdit = ({ char: init, data, onSave, onClose, onDelete }) => {
-  const [c,setC]=useState(init||{id:uid(),lastName:"",firstName:"",lastNameFuri:"",firstNameFuri:"",nameOrder:"last_first",genderId:"",imageColor:"#8EA3C3",image:"",birthday:"",deathDate:"",notes:"",relatedCharacters:[],relatedGroups:[],relatedTerms:[],parameters:[],abilities:[]});
+const CharacterEdit = ({ char: init, data, onSave, onClose, onDelete, onApplyAbilityToAll }) => {
+  const seed = init || {id:uid(),lastName:"",firstName:"",lastNameFuri:"",firstNameFuri:"",nameOrder:"last_first",genderId:"",imageColor:"#8EA3C3",image:"",birthday:"",deathDate:"",notes:"",relatedCharacters:[],relatedGroups:[],relatedTerms:[],parameters:[],abilities:[],abilityStages:[{id:uid(),name:"現在",abilities:[]}]};
+  const [c,setC]=useState(()=>{ const s={...seed}; if(!s.abilityStages||s.abilityStages.length===0) s.abilityStages=[{id:uid(),name:"現在",abilities:s.abilities||[]}]; return s; });
   const u=(k,v)=>setC(p=>({...p,[k]:v}));
   const [tab,setTab]=useState("basic");
-  const getAbilityVal=(pid)=>c.abilities.find(x=>x.paramId===pid)?.value||0;
-  const setAbilityVal=(pid,val)=>{ const next=c.abilities.filter(x=>x.paramId!==pid); next.push({paramId:pid,value:Number(val)}); u("abilities",next); };
-  const removeAbility=(pid)=>u("abilities",c.abilities.filter(x=>x.paramId!==pid));
-  const includedParams=data.abilityParams.filter(p=>c.abilities.some(a=>a.paramId===p.id));
-  const availableParams=data.abilityParams.filter(p=>!c.abilities.some(a=>a.paramId===p.id));
-  return (<Modal title={charName(c)||"新しい人物"} onClose={onClose} footer={<>{init&&<Btn variant="danger" icon="trash" small onClick={onDelete}>削除</Btn>}<div style={{ flex:1 }}/><Btn variant="primary" icon="save" onClick={()=>onSave(c)}>保存</Btn></>}>
+  const [stageIdx,setStageIdx]=useState(0);
+  const stage=c.abilityStages[stageIdx]||c.abilityStages[0];
+  const setStage=(patch)=>{ const next=c.abilityStages.map((s,i)=>i===stageIdx?{...s,...patch}:s); u("abilityStages",next); };
+  const getAbilityVal=(pid)=>(stage.abilities.find(x=>x.paramId===pid)?.value)||0;
+  const setAbilityVal=(pid,val)=>{ const next=stage.abilities.filter(x=>x.paramId!==pid); next.push({paramId:pid,value:Number(val)}); setStage({abilities:next}); };
+  const removeAbility=(pid)=>setStage({abilities:stage.abilities.filter(x=>x.paramId!==pid)});
+  const addStage=()=>{ const name=window.prompt("時期の名前（例：初期、中盤、完結後）","");if(name===null)return; const ns={id:uid(),name:name.trim()||`時期${c.abilityStages.length+1}`,abilities:[]}; const next=[...c.abilityStages,ns]; u("abilityStages",next); setStageIdx(next.length-1); };
+  const renameStage=()=>{ const name=window.prompt("時期の名前",stage.name);if(name===null)return; setStage({name:name.trim()||stage.name}); };
+  const deleteStage=()=>{ if(c.abilityStages.length<=1){alert("最後の時期は削除できません");return;} if(!window.confirm(`時期「${stage.name}」を削除しますか？`))return; const next=c.abilityStages.filter((_,i)=>i!==stageIdx); u("abilityStages",next); setStageIdx(0); };
+  const includedParams=data.abilityParams.filter(p=>stage.abilities.some(a=>a.paramId===p.id));
+  const availableParams=data.abilityParams.filter(p=>!stage.abilities.some(a=>a.paramId===p.id));
+  const saveAll=()=>{ const out={...c,abilities:(c.abilityStages[0]&&c.abilityStages[0].abilities)||[]}; onSave(out); };
+  return (<Modal title={charName(c)||"新しい人物"} onClose={onClose} footer={<>{init&&<Btn variant="danger" icon="trash" small onClick={onDelete}>削除</Btn>}<div style={{ flex:1 }}/><Btn variant="primary" icon="save" onClick={saveAll}>保存</Btn></>}>
     <Tabs active={tab} onChange={setTab} tabs={[{key:"basic",label:"基本情報"},{key:"links",label:"紐付け"},{key:"ability",label:"能力値"},{key:"params",label:"パラメータ"}]}/>
     {tab==="basic"&&<><ImageUpload value={c.image} onChange={v=>u("image",v)}/><Field label="名前の順序"><div style={{ display:"flex",gap:6 }}>{[["last_first","姓 → 名"],["first_last","名 → 姓"]].map(([v,l])=><button key={v} onClick={()=>u("nameOrder",v)} style={{ padding:"6px 13px",borderRadius:18,border:`1.5px solid ${c.nameOrder===v?C.accent:C.border}`,background:c.nameOrder===v?C.accent:C.surface,color:c.nameOrder===v?C.accentFg:C.sub,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:500 }}>{l}</button>)}</div></Field>
     {c.nameOrder==="last_first"?<><div style={{ display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:8 }}><Inp label="姓" value={c.lastName} onChange={v=>u("lastName",v)} placeholder="山田"/><Inp label="名" value={c.firstName} onChange={v=>u("firstName",v)} placeholder="太郎"/></div><div style={{ display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:8 }}><Inp label="姓（ふりがな）" value={c.lastNameFuri} onChange={v=>u("lastNameFuri",v)} placeholder="やまだ"/><Inp label="名（ふりがな）" value={c.firstNameFuri} onChange={v=>u("firstNameFuri",v)} placeholder="たろう"/></div></>:<><div style={{ display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:8 }}><Inp label="名" value={c.firstName} onChange={v=>u("firstName",v)} placeholder="太郎"/><Inp label="姓" value={c.lastName} onChange={v=>u("lastName",v)} placeholder="山田"/></div><div style={{ display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:8 }}><Inp label="名（ふりがな）" value={c.firstNameFuri} onChange={v=>u("firstNameFuri",v)} placeholder="たろう"/><Inp label="姓（ふりがな）" value={c.lastNameFuri} onChange={v=>u("lastNameFuri",v)} placeholder="やまだ"/></div></>}
     <Sel label="性別" value={c.genderId} onChange={v=>u("genderId",v)} options={data.genders.map(g=>({value:g.id,label:g.name}))}/><Field label="イメージカラー"><div style={{ display:"flex",gap:10,alignItems:"center" }}><input type="color" value={c.imageColor} onChange={e=>u("imageColor",e.target.value)} style={{ width:36,height:36,border:`1px solid ${C.border}`,borderRadius:8,cursor:"pointer",padding:2 }}/><span style={{ fontSize:12,color:C.sub }}>{c.imageColor}</span></div></Field>
-    <div style={{ display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:8 }}><Inp label="誕生日" value={c.birthday} onChange={v=>u("birthday",v)} type="date"/><Inp label="死亡日" value={c.deathDate} onChange={v=>u("deathDate",v)} type="date"/></div><Inp label="備考" value={c.notes} onChange={v=>u("notes",v)} rows={3} placeholder="メモ・設定など..."/></>}
+    <div style={{ display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:8 }}><DateInp label="誕生日" value={c.birthday} onChange={v=>u("birthday",v)}/><DateInp label="死亡日" value={c.deathDate} onChange={v=>u("deathDate",v)}/></div><Inp label="備考" value={c.notes} onChange={v=>u("notes",v)} rows={3} placeholder="メモ・設定など..."/></>}
     {tab==="links"&&<>
       <Field label="関連人物" mb={16}>{c.relatedCharacters.map(rel=>{const ch=data.characters.find(x=>x.id===rel.charId);return ch?<CharRelCard key={rel.charId} rel={rel} character={ch} onUpdate={up=>u("relatedCharacters",c.relatedCharacters.map(r=>r.charId===up.charId?up:r))} onRemove={()=>u("relatedCharacters",c.relatedCharacters.filter(r=>r.charId!==rel.charId))}/>:null;})}<AdditiveLinker available={data.characters.filter(ch=>ch.id!==c.id&&!c.relatedCharacters.some(r=>r.charId===ch.id))} onAdd={id=>u("relatedCharacters",[...c.relatedCharacters,{charId:id,callName:"",calledName:""}])} getLabel={charName} getColor={ch=>ch.imageColor}/></Field>
       <Divider/>
@@ -203,7 +219,18 @@ const CharacterEdit = ({ char: init, data, onSave, onClose, onDelete }) => {
       <Field label="関連用語" mb={0}><div style={{ display:"flex",flexWrap:"wrap",gap:5,marginBottom:8 }}>{c.relatedTerms.map(id=>{const t=data.terms.find(x=>x.id===id);return t?<Tag key={id} label={t.name} onRemove={()=>u("relatedTerms",c.relatedTerms.filter(x=>x!==id))}/>:null;})}</div><AdditiveLinker available={data.terms.filter(t=>!c.relatedTerms.includes(t.id))} onAdd={id=>u("relatedTerms",[...c.relatedTerms,id])} getLabel={t=>t.name||"（無名）"}/></Field>
     </>}
     {tab==="ability"&&<>
-      <div style={{ background:C.bg,borderRadius:14,padding:"16px 8px",marginBottom:16 }}><RadarChart params={includedParams} values={c.abilities} color={c.imageColor||C.accent} size={200}/></div>
+      <div style={{ display:"flex",gap:6,alignItems:"center",marginBottom:12,overflowX:"auto",paddingBottom:2 }}>
+        {c.abilityStages.map((st,i)=>(<button key={st.id} onClick={()=>setStageIdx(i)} style={{ flexShrink:0,padding:"6px 12px",borderRadius:18,border:`1.5px solid ${i===stageIdx?C.accent:C.border}`,background:i===stageIdx?C.accent:C.surface,color:i===stageIdx?C.accentFg:C.sub,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:i===stageIdx?600:400,whiteSpace:"nowrap" }}>{st.name}</button>))}
+        <button onClick={addStage} style={{ flexShrink:0,width:30,height:30,borderRadius:"50%",border:`1.5px dashed ${C.border}`,background:"transparent",color:C.hint,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}><Ico n="plus" s={14} c={C.hint}/></button>
+      </div>
+      <div style={{ display:"flex",gap:6,marginBottom:12 }}>
+        <Btn small variant="ghost" icon="edit" onClick={renameStage}>時期名変更</Btn>
+        {c.abilityStages.length>1&&<Btn small variant="ghost" onClick={deleteStage}>この時期を削除</Btn>}
+      </div>
+      <div style={{ background:C.bg,borderRadius:14,padding:"16px 8px 8px",marginBottom:16 }}>
+        <div style={{ textAlign:"center",fontSize:11,color:C.sub,marginBottom:4,fontWeight:600 }}>{stage.name}</div>
+        <RadarChart params={includedParams} values={stage.abilities} color={c.imageColor||C.accent} size={200}/>
+      </div>
       {data.abilityParams.length===0?<div style={{ textAlign:"center",padding:"12px 0",color:C.hint,fontSize:13 }}>副要素 → 能力値チャートで項目を追加してください</div>:<>
         {includedParams.map(p=>(<div key={p.id} style={{ marginBottom:14 }}><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}><span style={{ fontSize:13,fontWeight:600,color:C.text }}>{p.name}</span><div style={{ display:"flex",alignItems:"center",gap:8 }}><span style={{ fontSize:13,fontWeight:700,color:c.imageColor||C.accent,minWidth:28,textAlign:"right" }}>{getAbilityVal(p.id)}</span><button onClick={()=>removeAbility(p.id)} style={{ border:"none",background:"transparent",cursor:"pointer",padding:2,opacity:0.35 }}><Ico n="x" s={14} c={C.text}/></button></div></div><input type="range" min="0" max="100" value={getAbilityVal(p.id)} onChange={e=>setAbilityVal(p.id,e.target.value)} style={{ width:"100%",accentColor:c.imageColor||C.accent }}/></div>))}
         {availableParams.length>0&&<AdditiveLinker available={availableParams} onAdd={id=>setAbilityVal(id,50)} getLabel={p=>p.name||"（無名）"} placeholder="能力項目を追加"/>}
